@@ -1161,17 +1161,6 @@ impl<'a> Parser<'a> {
             Token::Word(w) => match w.keyword {
                 Keyword::AND => Some(BinaryOperator::And),
                 Keyword::OR => Some(BinaryOperator::Or),
-                Keyword::LIKE => Some(BinaryOperator::Like),
-                Keyword::ILIKE => Some(BinaryOperator::ILike),
-                Keyword::NOT => {
-                    if self.parse_keyword(Keyword::LIKE) {
-                        Some(BinaryOperator::NotLike)
-                    } else if self.parse_keyword(Keyword::ILIKE) {
-                        Some(BinaryOperator::NotILike)
-                    } else {
-                        None
-                    }
-                }
                 Keyword::XOR => Some(BinaryOperator::Xor),
                 _ => None,
             },
@@ -1256,9 +1245,25 @@ impl<'a> Parser<'a> {
                         self.parse_in(expr, negated)
                     } else if self.parse_keyword(Keyword::BETWEEN) {
                         self.parse_between(expr, negated)
+                    } else if self.parse_keyword(Keyword::LIKE) {
+                        todo!()
+                    } else if self.parse_keyword(Keyword::ILIKE) {
+                        todo!()
+                    } else if self.parse_keywords(&[Keyword::SIMILAR, Keyword::TO]) {
+                        todo!()
                     } else {
                         self.expected("IN or BETWEEN after NOT", self.peek_token())
                     }
+                }
+                Keyword::LIKE => {
+                    todo!()
+                }
+                Keyword::ILIKE => {
+                    todo!()
+                }
+                Keyword::SIMILAR => {
+                    self.expect_keyword(Keyword::TO)?;
+                    todo!()
                 }
                 // Can only happen if `get_next_precedence` got out of sync with this function
                 _ => parser_err!(format!("No infix parser for token {:?}", tok)),

@@ -268,6 +268,36 @@ pub enum Expr {
         op: BinaryOperator,
         right: Box<Expr>,
     },
+    Like {
+        expr: Box<Expr>,
+        pattern: String,
+        escape_char: Option<char>,
+    },
+    NotLike {
+        expr: Box<Expr>,
+        pattern: String,
+        escape_char: Option<char>,
+    },
+    ILike {
+        expr: Box<Expr>,
+        pattern: String,
+        escape_char: Option<char>,
+    },
+    NotILike {
+        expr: Box<Expr>,
+        pattern: String,
+        escape_char: Option<char>,
+    },
+    SimilarTo {
+        expr: Box<Expr>,
+        pattern: String,
+        escape_char: Option<char>,
+    },
+    NotSimilarTo {
+        expr: Box<Expr>,
+        pattern: String,
+        escape_char: Option<char>,
+    },
     /// Any operation e.g. `1 ANY (1)` or `foo > ANY(bar)`, It will be wrapped in the right side of BinaryExpr
     AnyOp(Box<Expr>),
     /// ALL operation e.g. `1 ALL (1)` or `foo > ALL(bar)`, It will be wrapped in the right side of BinaryExpr
@@ -438,6 +468,58 @@ impl fmt::Display for Expr {
                 high
             ),
             Expr::BinaryOp { left, op, right } => write!(f, "{} {} {}", left, op, right),
+            Expr::Like {
+                expr,
+                pattern,
+                escape_char,
+            } => match escape_char {
+                Some(ch) => write!(f, "{} LIKE '{}' ESCAPE CHAR '{}'", expr, pattern, ch),
+                _ => write!(f, "{} LIKE '{}'", expr, pattern),
+            },
+            Expr::NotLike {
+                expr,
+                pattern,
+                escape_char,
+            } => match escape_char {
+                Some(ch) => write!(f, "{} NOT LIKE '{}' ESCAPE CHAR '{}'", expr, pattern, ch),
+                _ => write!(f, "{} NOT LIKE '{}'", expr, pattern),
+            },
+            Expr::ILike {
+                expr,
+                pattern,
+                escape_char,
+            } => match escape_char {
+                Some(ch) => write!(f, "{} ILIKE '{}' ESCAPE CHAR '{}'", expr, pattern, ch),
+                _ => write!(f, "{} ILIKE '{}'", expr, pattern),
+            },
+            Expr::NotILike {
+                expr,
+                pattern,
+                escape_char,
+            } => match escape_char {
+                Some(ch) => write!(f, "{} NOT ILIKE '{}' ESCAPE CHAR '{}'", expr, pattern, ch),
+                _ => write!(f, "{} NOT ILIKE '{}'", expr, pattern),
+            },
+            Expr::SimilarTo {
+                expr,
+                pattern,
+                escape_char,
+            } => match escape_char {
+                Some(ch) => write!(f, "{} SIMILAR TO '{}' ESCAPE CHAR '{}'", expr, pattern, ch),
+                _ => write!(f, "{} SIMILAR TO '{}'", expr, pattern),
+            },
+            Expr::NotSimilarTo {
+                expr,
+                pattern,
+                escape_char,
+            } => match escape_char {
+                Some(ch) => write!(
+                    f,
+                    "{} NOT SIMILAR TO '{}' ESCAPE CHAR '{}'",
+                    expr, pattern, ch
+                ),
+                _ => write!(f, "{} NOT SIMILAR TO '{}'", expr, pattern),
+            },
             Expr::AnyOp(expr) => write!(f, "ANY({})", expr),
             Expr::AllOp(expr) => write!(f, "ALL({})", expr),
             Expr::UnaryOp { op, expr } => {
