@@ -16,6 +16,7 @@
 // under the License.
 
 use crate::ast::Statement;
+use crate::dialect::spark::spark_family_rules;
 use crate::dialect::Dialect;
 use crate::keywords::Keyword;
 use crate::parser::{Parser, ParserError};
@@ -29,6 +30,8 @@ use crate::tokenizer::{Token, Word};
 pub struct DatabricksDialect;
 
 impl Dialect for DatabricksDialect {
+    spark_family_rules!();
+
     /// Databricks has functions named `exists` and `array`, as well as the
     /// `EXISTS (SELECT ...)` predicate.
     fn is_keyword_a_function_name(&self, keyword: Keyword, parser: &Parser) -> bool {
@@ -52,42 +55,6 @@ impl Dialect for DatabricksDialect {
         Some(parser.parse_use_target(keyword))
     }
 
-    // see https://docs.databricks.com/en/sql/language-manual/sql-ref-identifiers.html
-
-    fn is_delimited_identifier_start(&self, ch: char) -> bool {
-        matches!(ch, '`')
-    }
-
-    /// Aliases are identifiers, see `column_alias` in
-    /// <https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-qry-select.html> and
-    /// <https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-identifiers.html>
-    fn supports_string_literal_column_alias(&self, _explicit: bool) -> bool {
-        false
-    }
-
-    /// Aliases are identifiers, see
-    /// <https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-identifiers.html>
-    fn supports_string_literal_table_alias(&self, _explicit: bool) -> bool {
-        false
-    }
-
-    fn supports_comparison_in_between_low_bound(&self) -> bool {
-        true
-    }
-
-    /// See <https://docs.databricks.com/en/sql/language-manual/sql-ref-identifiers.html>
-    fn identifier_quote_style(&self, _identifier: &str) -> Option<char> {
-        Some('`')
-    }
-
-    fn is_identifier_start(&self, ch: char) -> bool {
-        matches!(ch, 'a'..='z' | 'A'..='Z' | '_')
-    }
-
-    fn is_identifier_part(&self, ch: char) -> bool {
-        matches!(ch, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_')
-    }
-
     /// Databricks permits [keywords](https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-reserved-words) as table names.
     fn is_table_factor(&self, _kw: &Keyword, _parser: &mut Parser) -> bool {
         true
@@ -97,73 +64,13 @@ impl Dialect for DatabricksDialect {
         true
     }
 
-    fn supports_filter_during_aggregation(&self) -> bool {
-        true
-    }
-
-    // https://docs.databricks.com/en/sql/language-manual/sql-ref-syntax-qry-select-groupby.html
-    fn supports_group_by_expr(&self) -> bool {
-        true
-    }
-
     /// <https://docs.databricks.com/gcp/en/delta/history#delta-time-travel-syntax>
     fn supports_table_versioning(&self) -> bool {
         true
     }
 
-    fn supports_lambda_functions(&self) -> bool {
-        true
-    }
-
-    // https://docs.databricks.com/en/sql/language-manual/sql-ref-syntax-qry-select.html#syntax
-    fn supports_select_wildcard_except(&self) -> bool {
-        true
-    }
-
-    fn require_interval_qualifier(&self) -> bool {
-        true
-    }
-
-    // See https://docs.databricks.com/en/sql/language-manual/functions/struct.html
-    fn supports_struct_literal(&self) -> bool {
-        true
-    }
-
-    /// See <https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-comment>
-    fn supports_nested_comments(&self) -> bool {
-        true
-    }
-
-    /// See <https://docs.databricks.com/en/sql/language-manual/sql-ref-syntax-qry-select-groupby.html>
-    fn supports_group_by_with_modifier(&self) -> bool {
-        true
-    }
-
-    /// See <https://docs.databricks.com/en/sql/language-manual/sql-ref-syntax-qry-select-values.html>
-    fn supports_values_as_table_factor(&self) -> bool {
-        true
-    }
-
     /// See <https://docs.databricks.com/en/sql/language-manual/delta-optimize.html>
     fn supports_optimize_table(&self) -> bool {
-        true
-    }
-
-    /// See <https://docs.databricks.com/aws/en/sql/language-manual/functions/bangsign>
-    fn supports_bang_not_operator(&self) -> bool {
-        true
-    }
-
-    /// See <https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-qry-select-cte>
-    fn supports_cte_without_as(&self) -> bool {
-        true
-    }
-
-    fn supports_select_item_multi_column_alias(&self) -> bool {
-        true
-    }
-
-    fn supports_map_literal_with_angle_brackets(&self) -> bool {
         true
     }
 
@@ -180,10 +87,6 @@ impl Dialect for DatabricksDialect {
     }
 
     fn supports_from_first_select(&self) -> bool {
-        true
-    }
-
-    fn supports_pipe_operator(&self) -> bool {
         true
     }
 }

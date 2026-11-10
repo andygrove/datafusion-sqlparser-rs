@@ -19,6 +19,114 @@ use crate::ast::Expr;
 use crate::dialect::Dialect;
 use crate::parser::{Parser, ParserError};
 
+// The rules that Spark and Databricks share. Databricks is built on Spark, so a
+// rule belongs here unless the two genuinely differ.
+macro_rules! spark_family_rules {
+    () => {
+        // See https://spark.apache.org/docs/latest/sql-ref-identifier.html
+        fn is_delimited_identifier_start(&self, ch: char) -> bool {
+            matches!(ch, '`')
+        }
+
+        /// Aliases are identifiers, see `named_expression` in
+        /// <https://spark.apache.org/docs/latest/sql-ref-syntax-qry-select.html> and
+        /// <https://spark.apache.org/docs/latest/sql-ref-identifier.html>
+        fn supports_string_literal_column_alias(&self, _explicit: bool) -> bool {
+            false
+        }
+
+        /// Aliases are identifiers, see <https://spark.apache.org/docs/latest/sql-ref-identifier.html>
+        fn supports_string_literal_table_alias(&self, _explicit: bool) -> bool {
+            false
+        }
+
+        fn supports_comparison_in_between_low_bound(&self) -> bool {
+            true
+        }
+
+        /// See <https://spark.apache.org/docs/latest/sql-ref-identifier.html>
+        fn identifier_quote_style(&self, _identifier: &str) -> Option<char> {
+            Some('`')
+        }
+
+        fn is_identifier_start(&self, ch: char) -> bool {
+            matches!(ch, 'a'..='z' | 'A'..='Z' | '_')
+        }
+
+        fn is_identifier_part(&self, ch: char) -> bool {
+            matches!(ch, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_')
+        }
+
+        /// See <https://spark.apache.org/docs/latest/sql-ref-functions-builtin-agg.html>
+        fn supports_filter_during_aggregation(&self) -> bool {
+            true
+        }
+
+        /// See <https://spark.apache.org/docs/latest/sql-ref-syntax-qry-select-groupby.html>
+        fn supports_group_by_expr(&self) -> bool {
+            true
+        }
+
+        /// See <https://spark.apache.org/docs/latest/sql-ref-syntax-qry-select-groupby.html>
+        fn supports_group_by_with_modifier(&self) -> bool {
+            true
+        }
+
+        /// See <https://spark.apache.org/docs/latest/sql-ref-functions-builtin-higher-order-func.html>
+        fn supports_lambda_functions(&self) -> bool {
+            true
+        }
+
+        /// See <https://spark.apache.org/docs/latest/sql-ref-syntax-qry-select.html>
+        fn supports_select_wildcard_except(&self) -> bool {
+            true
+        }
+
+        /// See <https://spark.apache.org/docs/latest/sql-ref-datatypes.html>
+        fn supports_struct_literal(&self) -> bool {
+            true
+        }
+
+        fn supports_nested_comments(&self) -> bool {
+            true
+        }
+
+        /// See <https://spark.apache.org/docs/latest/sql-ref-syntax-qry-select.html>
+        fn supports_values_as_table_factor(&self) -> bool {
+            true
+        }
+
+        fn require_interval_qualifier(&self) -> bool {
+            true
+        }
+
+        fn supports_bang_not_operator(&self) -> bool {
+            true
+        }
+
+        fn supports_select_item_multi_column_alias(&self) -> bool {
+            true
+        }
+
+        fn supports_cte_without_as(&self) -> bool {
+            true
+        }
+
+        /// See <https://spark.apache.org/docs/latest/sql-ref-datatypes.html>
+        fn supports_map_literal_with_angle_brackets(&self) -> bool {
+            true
+        }
+
+        /// See:
+        /// - <https://spark.apache.org/docs/latest/sql-pipe-syntax.html>
+        /// - <https://issues.apache.org/jira/browse/SPARK-49528>
+        fn supports_pipe_operator(&self) -> bool {
+            true
+        }
+    };
+}
+pub(super) use spark_family_rules;
+
 /// A [`Dialect`] for [Apache Spark SQL](https://spark.apache.org/docs/latest/sql-ref.html).
 ///
 /// See <https://spark.apache.org/docs/latest/sql-ref-syntax.html>.
@@ -27,73 +135,7 @@ use crate::parser::{Parser, ParserError};
 pub struct SparkSqlDialect;
 
 impl Dialect for SparkSqlDialect {
-    // See https://spark.apache.org/docs/latest/sql-ref-identifier.html
-    fn is_delimited_identifier_start(&self, ch: char) -> bool {
-        matches!(ch, '`')
-    }
-
-    /// Aliases are identifiers, see `named_expression` in
-    /// <https://spark.apache.org/docs/latest/sql-ref-syntax-qry-select.html> and
-    /// <https://spark.apache.org/docs/latest/sql-ref-identifier.html>
-    fn supports_string_literal_column_alias(&self, _explicit: bool) -> bool {
-        false
-    }
-
-    /// Aliases are identifiers, see <https://spark.apache.org/docs/latest/sql-ref-identifier.html>
-    fn supports_string_literal_table_alias(&self, _explicit: bool) -> bool {
-        false
-    }
-
-    fn supports_comparison_in_between_low_bound(&self) -> bool {
-        true
-    }
-
-    /// See <https://spark.apache.org/docs/latest/sql-ref-identifier.html>
-    fn identifier_quote_style(&self, _identifier: &str) -> Option<char> {
-        Some('`')
-    }
-
-    fn is_identifier_start(&self, ch: char) -> bool {
-        matches!(ch, 'a'..='z' | 'A'..='Z' | '_')
-    }
-
-    fn is_identifier_part(&self, ch: char) -> bool {
-        matches!(ch, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_')
-    }
-
-    /// See <https://spark.apache.org/docs/latest/sql-ref-functions-builtin-agg.html>
-    fn supports_filter_during_aggregation(&self) -> bool {
-        true
-    }
-
-    /// See <https://spark.apache.org/docs/latest/sql-ref-syntax-qry-select-groupby.html>
-    fn supports_group_by_expr(&self) -> bool {
-        true
-    }
-
-    /// See <https://spark.apache.org/docs/latest/sql-ref-syntax-qry-select-groupby.html>
-    fn supports_group_by_with_modifier(&self) -> bool {
-        true
-    }
-
-    /// See <https://spark.apache.org/docs/latest/sql-ref-functions-builtin-higher-order-func.html>
-    fn supports_lambda_functions(&self) -> bool {
-        true
-    }
-
-    /// See <https://spark.apache.org/docs/latest/sql-ref-syntax-qry-select.html>
-    fn supports_select_wildcard_except(&self) -> bool {
-        true
-    }
-
-    /// See <https://spark.apache.org/docs/latest/sql-ref-datatypes.html>
-    fn supports_struct_literal(&self) -> bool {
-        true
-    }
-
-    fn supports_nested_comments(&self) -> bool {
-        true
-    }
+    spark_family_rules!();
 
     /// See <https://spark.apache.org/docs/latest/sql-ref-syntax-ddl-create-table-datasource.html>
     fn supports_create_table_using(&self) -> bool {
@@ -104,39 +146,6 @@ impl Dialect for SparkSqlDialect {
     ///
     /// See <https://spark.apache.org/docs/latest/sql-ref-datatypes.html>
     fn supports_long_type_as_bigint(&self) -> bool {
-        true
-    }
-
-    /// See <https://spark.apache.org/docs/latest/sql-ref-syntax-qry-select.html>
-    fn supports_values_as_table_factor(&self) -> bool {
-        true
-    }
-
-    fn require_interval_qualifier(&self) -> bool {
-        true
-    }
-
-    fn supports_bang_not_operator(&self) -> bool {
-        true
-    }
-
-    fn supports_select_item_multi_column_alias(&self) -> bool {
-        true
-    }
-
-    fn supports_cte_without_as(&self) -> bool {
-        true
-    }
-
-    /// See <https://spark.apache.org/docs/latest/sql-ref-datatypes.html>
-    fn supports_map_literal_with_angle_brackets(&self) -> bool {
-        true
-    }
-
-    /// See:
-    /// - <https://spark.apache.org/docs/latest/sql-pipe-syntax.html>
-    /// - <https://issues.apache.org/jira/browse/SPARK-49528>
-    fn supports_pipe_operator(&self) -> bool {
         true
     }
 
