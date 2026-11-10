@@ -257,6 +257,7 @@ fn angle_brackets_hold_element_types() {
 #[test]
 fn nested_angle_brackets_close_separately() {
     round_trips("SELECT CAST(a AS ARRAY<ARRAY<INT>>) FROM t");
+    round_trips("SELECT CAST(a AS ARRAY<STRUCT<x: INT>>) FROM t");
     round_trips("SELECT CAST(a AS MAP<STRING, ARRAY<INT>>) FROM t");
 }
 
@@ -1028,4 +1029,22 @@ fn malformed_cache_statements_are_rejected() {
     assert!(rejected::<Spark>("UNCACHE TABLE IF t"));
     assert!(rejected::<Core>("CACHE TABLE t"));
     assert!(rejected::<Core>("UNCACHE TABLE t"));
+}
+
+#[test]
+fn raw_strings_keep_their_backslashes() {
+    use sqlparser::ast::{ExprKind, Literal};
+    let value = |sql| match sqlparser::parse_expr::<Spark>(sql).unwrap().kind {
+        ExprKind::Literal(Literal::String(s)) => s.value().into_owned(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(value(r"r'a\tb'"), r"a\tb");
+    assert_eq!(value(r#"R"a\nb""#), r"a\nb");
+    assert_eq!(value(r"'a\tb'"), "a\tb");
+}
+
+#[test]
+fn struct_values_can_be_named() {
+    round_trips("SELECT STRUCT(1 AS a, 'x' AS b)");
+    round_trips("SELECT STRUCT(1, 2)");
 }

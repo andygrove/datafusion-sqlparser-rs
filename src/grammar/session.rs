@@ -399,8 +399,14 @@ pub fn parse_use<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<ObjectName<'a
 pub fn parse_explain_option_list<'a, D: Dialect>(
     p: &mut Parser<'a, D>,
 ) -> PResult<Vec<ExplainOption<'a>>> {
+    // No option is named like the start of a statement, so these mean the
+    // parentheses hold a query: `EXPLAIN (VALUES (1))`.
     let next = p.peek_nth(1);
-    let is_query = next.is_word("SELECT") || next.is_word("WITH") || next.is_op("(");
+    let is_query = query_starts_at(p, 1)
+        || next.is_op("(")
+        || ["TABLE", "INSERT", "UPDATE", "DELETE", "MERGE"]
+            .iter()
+            .any(|word| next.is_word(word));
     if !p.at_op("(") || is_query {
         return Ok(Vec::new());
     }

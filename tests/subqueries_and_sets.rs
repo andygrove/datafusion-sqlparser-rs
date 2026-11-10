@@ -67,6 +67,7 @@ fn sel(number: &str) -> S<'_> {
         qualify: None,
         windows: Vec::new(),
         from_first: false,
+        span: Span::default(),
         lateral_views: Vec::new(),
     }))
 }
@@ -723,4 +724,18 @@ fn with_recursive_is_rejected_where_the_keyword_does_not_exist() {
             .as_ref()
             .is_some_and(|with| with.recursive)
     );
+}
+
+#[test]
+fn selects_and_set_operations_have_spans() {
+    let sql = "SELECT a FROM t UNION ALL SELECT b, c FROM u";
+    let query = parse_query::<Core>(sql).unwrap();
+    let SetExpr::SetOperation { left, right, .. } = &query.body else {
+        panic!("expected a set operation");
+    };
+    assert_eq!(left.span().text(sql), "SELECT a FROM t");
+    assert_eq!(right.span().text(sql), "SELECT b, c FROM u");
+    assert_eq!(query.body.span().text(sql), sql);
+    let query = parse_query::<sqlparser::dialect::DuckDb>("FROM t SELECT a").unwrap();
+    assert_eq!(query.body.span(), Span { start: 0, end: 15 });
 }

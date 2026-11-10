@@ -27,7 +27,7 @@ use crate::ast::StatementKind;
 use crate::ast::*;
 use crate::dialect::Dialect;
 use crate::lexer::{Token, TokenKind};
-use crate::parser::{InfixParseFn, InfixRule, MAX_NESTING_DEPTH, Parser, SetOperatorRule};
+use crate::parser::{InfixParseFn, InfixRule, Parser, SetOperatorRule};
 use std::borrow::Cow;
 
 mod admin;

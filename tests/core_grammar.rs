@@ -153,6 +153,7 @@ fn full_select_produces_every_clause() {
             qualify: None,
             windows: Vec::new(),
             from_first: false,
+            span: Span::default(),
             lateral_views: Vec::new(),
         })),
         order_by: vec![

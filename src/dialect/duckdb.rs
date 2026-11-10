@@ -267,11 +267,7 @@ fn lex_number_with_underscores(bytes: &[u8]) -> Option<LexResult> {
     }
     let scan = || -> Result<Option<usize>, &'static str> {
         let (mut len, mut seen) = digit_run(bytes, 0)?;
-        if bytes.get(len) == Some(&b'.')
-            && !bytes
-                .get(len + 1)
-                .is_some_and(|b| is_word_byte(*b) && !b.is_ascii_digit() || *b == b'.')
-        {
+        if crate::lexer::point_continues_number(bytes, len) {
             let (end, underscore) = digit_run(bytes, len + 1)?;
             len = end;
             seen |= underscore;
@@ -373,7 +369,7 @@ fn parse_map_literal<'a, D: Dialect<Ext = Builtin>>(
     p.expect_keyword("MAP")?;
     p.expect_op("{")?;
     let entries = parse_list_until(p, "}", |p| {
-        let key = p.parse_expr()?;
+        let key = p.with_context(grammar::CONTEXT_COLON_SEPARATES, Parser::parse_expr)?;
         p.expect_op(":")?;
         Ok((key, p.parse_expr()?))
     })?;
@@ -453,9 +449,6 @@ pub fn parse_prefix<'a, D: Dialect<Ext = Builtin>>(
     }
     if at_keyword_lambda(p) {
         return parse_keyword_lambda(p);
-    }
-    if spark::at_lambda(p) {
-        return spark::parse_lambda(p);
     }
     if at_colon_placeholder(p) {
         p.advance();
@@ -764,13 +757,14 @@ pub fn parse_function_args<'a, D: Dialect>(
     grammar::parse_list_with_trailing_comma(p, D::parse_function_arg)
 }
 
-/// Parses an argument, which can be named with `:=` or `=`.
+/// Parses an argument, which can be named with `:=` or `=>`. An `=` compares,
+/// as in `coalesce(x = 1, false)`.
 pub fn parse_function_arg<'a, D: Dialect>(
     p: &mut Parser<'a, D>,
 ) -> PResult<FunctionArg<'a, D::Ext>> {
     if is_name(p.peek()) {
         let next = p.peek_nth(1);
-        if let Some(operator) = [":=", "="].into_iter().find(|op| next.is_op(op)) {
+        if let Some(operator) = [":="].into_iter().find(|op| next.is_op(op)) {
             let name = p.parse_name_part()?;
             p.advance();
             let value = p.parse_expr()?;
@@ -780,6 +774,11 @@ pub fn parse_function_arg<'a, D: Dialect>(
                 value,
             });
         }
+    }
+    // `x -> body` is a lambda only as an argument; elsewhere `->` extracts
+    // from JSON, as DuckDB's binder decides.
+    if spark::at_lambda(p) {
+        return p.spanned_expr(spark::parse_lambda).map(FunctionArg::Expr);
     }
     grammar::parse_function_arg(p)
 }
@@ -808,10 +807,98 @@ pub fn parse_column_option<'a, D: Dialect>(
     }))))
 }
 
-/// Parses the part `EXTRACT` takes, which can be written as a string.
+/// The spellings of the date and time parts DuckDB knows, in lower case.
+const DATE_PARTS: [&str; 79] = [
+    "c",
+    "cent",
+    "centuries",
+    "century",
+    "d",
+    "day",
+    "dayofmonth",
+    "dayofweek",
+    "dayofyear",
+    "days",
+    "dec",
+    "decade",
+    "decades",
+    "decs",
+    "dow",
+    "doy",
+    "epoch",
+    "era",
+    "h",
+    "hour",
+    "hours",
+    "hr",
+    "hrs",
+    "isodow",
+    "isoyear",
+    "julian",
+    "m",
+    "microsecond",
+    "microseconds",
+    "mil",
+    "millenia",
+    "millennia",
+    "millenium",
+    "millennium",
+    "millisecond",
+    "milliseconds",
+    "mils",
+    "min",
+    "mins",
+    "minute",
+    "minutes",
+    "mon",
+    "mons",
+    "month",
+    "months",
+    "ms",
+    "msec",
+    "msecond",
+    "mseconds",
+    "msecs",
+    "nanosecond",
+    "nanoseconds",
+    "ns",
+    "quarter",
+    "quarters",
+    "s",
+    "sec",
+    "second",
+    "seconds",
+    "secs",
+    "timezone",
+    "timezone_hour",
+    "timezone_minute",
+    "us",
+    "usec",
+    "usecond",
+    "useconds",
+    "usecs",
+    "w",
+    "week",
+    "weekday",
+    "weekofyear",
+    "weeks",
+    "y",
+    "year",
+    "years",
+    "yearweek",
+    "yr",
+    "yrs",
+];
+
+/// Parses the part `EXTRACT` takes: a core date or time field, one of DuckDB's
+/// other spellings of one, such as `us`, or a string.
 pub fn parse_extract_field<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<&'a str> {
     let token = p.peek();
-    if token.kind == TokenKind::String {
+    let known = token.kind == TokenKind::Word
+        && DATE_PARTS
+            .iter()
+            .any(|part| token.text.eq_ignore_ascii_case(part));
+    if token.kind == TokenKind::String || known {
         p.advance();
         return Ok(token.text);
     }
@@ -1312,6 +1399,14 @@ impl Dialect for DuckDb {
         grammar::parse_explain_option_list(p)
     }
 
+    /// A built-in type name can introduce a string: `UUID '...'`.
+    fn is_typed_string_type(name: &str) -> bool {
+        grammar::is_typed_string_type(name)
+            || TYPED_STRING_TYPES
+                .iter()
+                .any(|type_name| name.eq_ignore_ascii_case(type_name))
+    }
+
     fn parse_add_column_if_not_exists<'a>(p: &mut Parser<'a, Self>) -> PResult<bool> {
         grammar::parse_if_not_exists(p)
     }
@@ -1499,3 +1594,48 @@ impl fmt::Display for DuckDbStatement<'_> {
         }
     }
 }
+
+/// DuckDB's built-in types that can introduce a string literal, besides the
+/// standard date and time types.
+const TYPED_STRING_TYPES: &[&str] = &[
+    "BIGINT",
+    "INT8",
+    "LONG",
+    "BIT",
+    "BITSTRING",
+    "BLOB",
+    "BYTEA",
+    "BINARY",
+    "VARBINARY",
+    "BOOLEAN",
+    "BOOL",
+    "LOGICAL",
+    "DECIMAL",
+    "NUMERIC",
+    "DOUBLE",
+    "FLOAT8",
+    "FLOAT",
+    "FLOAT4",
+    "REAL",
+    "HUGEINT",
+    "INTEGER",
+    "INT4",
+    "INT",
+    "SIGNED",
+    "SMALLINT",
+    "INT2",
+    "SHORT",
+    "TINYINT",
+    "INT1",
+    "UBIGINT",
+    "UHUGEINT",
+    "UINTEGER",
+    "USMALLINT",
+    "UTINYINT",
+    "UUID",
+    "VARCHAR",
+    "CHAR",
+    "BPCHAR",
+    "TEXT",
+    "STRING",
+];

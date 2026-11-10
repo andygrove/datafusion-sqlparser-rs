@@ -1358,8 +1358,9 @@ pub fn parse_select_item_alias<'a, D: Dialect>(
     grammar::parse_select_item_alias(p, expr)
 }
 
-/// True at `VALUES ROW`, which is only a query when `(` follows.
-fn at_row_values<'a, D: Dialect>(p: &Parser<'a, D>, n: usize) -> bool {
+/// True if the token `n` ahead starts `VALUES ROW(...)`, which is only a query
+/// when `(` follows `ROW`.
+pub fn at_row_values<'a, D: Dialect>(p: &Parser<'a, D>, n: usize) -> bool {
     p.peek_nth(n).is_word("VALUES")
         && p.peek_nth(n + 1).is_word("ROW")
         && p.peek_nth(n + 2).is_op("(")

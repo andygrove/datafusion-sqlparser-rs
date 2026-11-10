@@ -31,13 +31,13 @@ use crate::dialect::Dialect;
 use crate::lexer::{Token, TokenKind, tokenize};
 use crate::{PResult, ParseError};
 
-/// Nesting allowed before parsing fails, protecting the stack.
-pub(crate) const MAX_NESTING_DEPTH: usize = 64;
+/// The default nesting allowed before parsing fails, protecting the stack.
+pub const DEFAULT_MAX_NESTING_DEPTH: usize = 64;
 
 /// The default limit on the height of a parsed tree.
 ///
 /// Long operator chains parse in a loop, so they never reach
-/// [`MAX_NESTING_DEPTH`], but they build trees whose destructor and derived
+/// [`DEFAULT_MAX_NESTING_DEPTH`], but they build trees whose destructor and derived
 /// traits recurse once per level. This keeps those safe on a 2 MiB stack in a
 /// debug build.
 /// Debug-build frames grow with the number of `Expr` variants, so this margin
@@ -90,6 +90,7 @@ pub struct Parser<'a, D: Dialect> {
     tokens: Vec<Token<'a>>,
     pos: usize,
     depth: usize,
+    max_nesting_depth: usize,
     /// Height of the tree built so far at the current nesting level.
     height: usize,
     max_tree_height: usize,
@@ -152,6 +153,7 @@ impl<'a, D: Dialect> Parser<'a, D> {
             tokens: tokenize::<D>(sql)?,
             pos: 0,
             depth: 0,
+            max_nesting_depth: DEFAULT_MAX_NESTING_DEPTH,
             height: 0,
             max_tree_height: DEFAULT_MAX_TREE_HEIGHT,
             context: 0,
@@ -165,6 +167,19 @@ impl<'a, D: Dialect> Parser<'a, D> {
     pub fn with_max_tree_height(mut self, max_tree_height: usize) -> Self {
         self.max_tree_height = max_tree_height;
         self
+    }
+
+    /// Sets how deeply rules may nest, such as parenthesized expressions and
+    /// subqueries, before parsing fails. Each level uses stack, so raising it
+    /// above the default is only safe on a correspondingly larger stack.
+    pub fn with_max_nesting_depth(mut self, max_nesting_depth: usize) -> Self {
+        self.max_nesting_depth = max_nesting_depth;
+        self
+    }
+
+    /// How deeply rules may nest; see [`Parser::with_max_nesting_depth`].
+    pub fn max_nesting_depth(&self) -> usize {
+        self.max_nesting_depth
     }
 
     /// The SQL being parsed, for a rule that joins adjacent tokens into one
@@ -269,6 +284,29 @@ impl<'a, D: Dialect> Parser<'a, D> {
         }
     }
 
+    /// Consumes the `>` that closes a type's angle brackets. When `>>` closes
+    /// two of them at once, as in `ARRAY<ARRAY<INT>>`, it consumes one `>` and
+    /// leaves the other.
+    pub fn expect_angle_close(&mut self) -> PResult<()> {
+        let token = self.peek();
+        if token.is_op(">") {
+            self.advance();
+            return Ok(());
+        }
+        if token.kind != TokenKind::Op || !token.text.starts_with('>') || token.text.len() < 2 {
+            return Err(self.expected(">"));
+        }
+        self.tokens[self.pos] = Token {
+            kind: TokenKind::Op,
+            text: &token.text[1..],
+            span: crate::ast::Span {
+                start: token.span.start + 1,
+                end: token.span.end,
+            },
+        };
+        Ok(())
+    }
+
     pub fn at_eof(&self) -> bool {
         self.peek().kind == TokenKind::Eof
     }
@@ -278,6 +316,14 @@ impl<'a, D: Dialect> Parser<'a, D> {
             Ok(())
         } else {
             Err(self.expected("end of input"))
+        }
+    }
+
+    /// An error saying that the SQL nests more deeply than `limit`.
+    fn too_deep(&self, limit: usize) -> ParseError {
+        ParseError {
+            message: format!("SQL is nested too deeply (the limit is {limit})"),
+            span: self.peek().span,
         }
     }
 
@@ -347,8 +393,8 @@ impl<'a, D: Dialect> Parser<'a, D> {
     /// Runs a rule that can recurse, failing if nesting gets too deep.
     /// Every recursive path through the grammar must pass through this.
     pub fn nested<T>(&mut self, rule: impl FnOnce(&mut Self) -> PResult<T>) -> PResult<T> {
-        if self.depth == MAX_NESTING_DEPTH {
-            return Err(self.expected("less deeply nested SQL"));
+        if self.depth >= self.max_nesting_depth {
+            return Err(self.too_deep(self.max_nesting_depth));
         }
         self.depth += 1;
         let outer_height = self.height;
@@ -378,7 +424,7 @@ impl<'a, D: Dialect> Parser<'a, D> {
 
     fn check_height(&self) -> PResult<()> {
         if self.height > self.max_tree_height {
-            return Err(self.expected("less deeply nested SQL"));
+            return Err(self.too_deep(self.max_tree_height));
         }
         Ok(())
     }

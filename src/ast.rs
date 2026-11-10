@@ -196,6 +196,12 @@ impl<'a> StringLiteral<'a> {
         lend(&self.text, |text| {
             if self.prefix == StringPrefix::Raw || (self.triple && !self.backslash_escapes) {
                 Cow::Borrowed(text)
+            } else if self.prefix == StringPrefix::Escape {
+                // The lexer has checked the escapes; an invalid one is kept as written.
+                match unescape_escape_string(text, self.quote) {
+                    Ok(value) => value,
+                    Err(_) => Cow::Borrowed(text),
+                }
             } else if self.backslash_escapes && text.contains('\\') {
                 // Inside triple quotes, a doubled quote is just two quotes.
                 let quote = if self.triple { '\0' } else { self.quote };
@@ -207,6 +213,98 @@ impl<'a> StringLiteral<'a> {
             }
         })
     }
+}
+
+/// Resolves the escapes of PostgreSQL's `E'text'`: `\b`, `\f`, `\n`, `\r`
+/// and `\t`, one to three octal digits, `\x` and one or two hex digits, which
+/// write bytes, `\uXXXX` and `\UXXXXXXXX`, which write code points, and a
+/// backslash before any other character, which writes that character. Fails if
+/// the bytes are not UTF-8, or the string would contain a NUL.
+pub fn unescape_escape_string(text: &str, quote: char) -> Result<Cow<'_, str>, &'static str> {
+    if !text.contains('\\') {
+        return Ok(unescape(text, quote));
+    }
+    let mut value = Vec::with_capacity(text.len());
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    // Reads up to `max` digits in `radix` from `bytes[i..]`.
+    let digits = |i: &mut usize, radix: u32, max: usize| -> Option<u32> {
+        let start = *i;
+        let mut n = 0u32;
+        while *i < bytes.len() && *i - start < max {
+            let Some(d) = char::from(bytes[*i]).to_digit(radix) else {
+                break;
+            };
+            n = n * radix + d;
+            *i += 1;
+        }
+        (*i > start).then_some(n)
+    };
+    while i < bytes.len() {
+        let b = bytes[i];
+        i += 1;
+        if char::from(b) == quote && bytes.get(i) == Some(&b) {
+            i += 1;
+            value.push(b);
+            continue;
+        }
+        if b != b'\\' {
+            value.push(b);
+            continue;
+        }
+        let Some(&escaped) = bytes.get(i) else {
+            return Err("unterminated escape in string");
+        };
+        i += 1;
+        match escaped {
+            b'b' => value.push(8),
+            b'f' => value.push(12),
+            b'n' => value.push(b'\n'),
+            b'r' => value.push(b'\r'),
+            b't' => value.push(b'\t'),
+            b'0'..=b'7' => {
+                i -= 1;
+                let n = digits(&mut i, 8, 3).unwrap_or(0);
+                value.push((n & 0xff) as u8);
+            }
+            b'x' if bytes.get(i).is_some_and(u8::is_ascii_hexdigit) => {
+                let n = digits(&mut i, 16, 2).unwrap_or(0);
+                value.push(n as u8);
+            }
+            b'u' | b'U' => {
+                let len = if escaped == b'u' { 4 } else { 8 };
+                let start = i;
+                let mut code = digits(&mut i, 16, len).filter(|_| i - start == len);
+                // A UTF-16 surrogate pair is written as two `\u` escapes.
+                if let Some(high @ 0xD800..=0xDBFF) = code {
+                    code = None;
+                    if bytes.get(i) == Some(&b'\\') && bytes.get(i + 1) == Some(&b'u') {
+                        i += 2;
+                        let start = i;
+                        if let Some(low @ 0xDC00..=0xDFFF) =
+                            digits(&mut i, 16, 4).filter(|_| i - start == 4)
+                        {
+                            code = Some(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00));
+                        }
+                    }
+                }
+                let c = code
+                    .and_then(char::from_u32)
+                    .ok_or("invalid Unicode escape in string")?;
+                value.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes());
+            }
+            other => {
+                // Another character, which may be more than one byte.
+                value.push(other);
+            }
+        }
+    }
+    if value.contains(&0) {
+        return Err("a string cannot contain a NUL character");
+    }
+    String::from_utf8(value)
+        .map(Cow::Owned)
+        .map_err(|_| "invalid byte sequence in string")
 }
 
 fn unescape_backslashes(text: &str, quote: char) -> String {
@@ -651,6 +749,10 @@ pub enum SpecialExpr<'a, X: AstExt> {
         /// in `ROLLUP` and `CUBE`.
         sets: Vec<Vec<Expr<'a, X>>>,
     },
+    /// A function called without parentheses, such as `CURRENT_DATE`. Which
+    /// words these are is up to the dialect: see
+    /// [`Dialect::is_niladic_function`](crate::dialect::Dialect::is_niladic_function).
+    Niladic(Ident<'a>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1343,10 +1445,12 @@ pub enum JoinConstraint<'a, X: AstExt> {
     Using(Vec<Ident<'a>>),
     /// `NATURAL`, which is written before the join keywords.
     Natural,
-    /// `MATCH_CONDITION (condition) [ON on]`, for an `ASOF JOIN`.
+    /// `MATCH_CONDITION (condition)`, for an `ASOF JOIN`, followed by
+    /// `constraint`: [`JoinConstraint::None`], [`JoinConstraint::On`] or
+    /// [`JoinConstraint::Using`].
     AsOf {
         condition: Expr<'a, X>,
-        on: Option<Expr<'a, X>>,
+        constraint: Box<JoinConstraint<'a, X>>,
     },
 }
 
@@ -1707,7 +1811,7 @@ pub enum GroupByModifier {
     Chain(Vec<GroupByModifier>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
     feature = "serde",
@@ -1751,6 +1855,81 @@ pub struct Select<'a, X: AstExt> {
     pub windows: Vec<NamedWindow<'a, X>>,
     /// True if `FROM` was written before `SELECT`, which can then be left out.
     pub from_first: bool,
+    /// Ignored by `==`, like the span of an [`Ident`].
+    pub span: Span,
+}
+
+impl<X: AstExt> PartialEq for Select<'_, X> {
+    fn eq(&self, other: &Self) -> bool {
+        // Destructured so that a new field cannot be left out.
+        let Select {
+            modifiers,
+            quantifier,
+            projection,
+            into,
+            from,
+            lateral_views,
+            prewhere,
+            selection,
+            connect_by,
+            group_by,
+            group_by_all,
+            group_by_modifier,
+            grouping_sets,
+            having,
+            qualify,
+            windows,
+            from_first,
+            span: _,
+        } = self;
+        *modifiers == other.modifiers
+            && *quantifier == other.quantifier
+            && *projection == other.projection
+            && *into == other.into
+            && *from == other.from
+            && *lateral_views == other.lateral_views
+            && *prewhere == other.prewhere
+            && *selection == other.selection
+            && *connect_by == other.connect_by
+            && *group_by == other.group_by
+            && *group_by_all == other.group_by_all
+            && *group_by_modifier == other.group_by_modifier
+            && *grouping_sets == other.grouping_sets
+            && *having == other.having
+            && *qualify == other.qualify
+            && *windows == other.windows
+            && *from_first == other.from_first
+    }
+}
+
+impl<X: AstExt> Spanned for Select<'_, X> {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+impl<X: AstExt> Spanned for SetExpr<'_, X> {
+    /// The span of a `SELECT`, or of both sides of a set operation. Other
+    /// bodies, such as `VALUES`, have an empty span.
+    fn span(&self) -> Span {
+        match self {
+            SetExpr::Select(select) => select.span,
+            SetExpr::Query(query) => query.body.span(),
+            SetExpr::Statement(statement) => statement.span,
+            SetExpr::SetOperation { left, right, .. } => {
+                let (left, right) = (left.span(), right.span());
+                if left == Span::default() || right == Span::default() {
+                    Span::default()
+                } else {
+                    Span {
+                        start: left.start,
+                        end: right.end,
+                    }
+                }
+            }
+            SetExpr::Values(_) | SetExpr::RowValues(_) | SetExpr::Table(_) => Span::default(),
+        }
+    }
 }
 
 /// `INTO [TEMPORARY | TEMP | UNLOGGED] [TABLE] targets`

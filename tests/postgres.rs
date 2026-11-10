@@ -693,3 +693,57 @@ fn other_dialects_stay_out() {
         assert!(parse_sql::<Core>(sql).is_err(), "Core accepted {sql}");
     }
 }
+
+#[test]
+fn caret_is_exponentiation() {
+    let ExprKind::Binary { op, right, .. } = parse_expr::<Postgres>("2 * 2 ^ 3").unwrap().kind
+    else {
+        panic!("not a binary expression");
+    };
+    assert_eq!(op, BinaryOp::Mul);
+    assert!(matches!(
+        right.kind,
+        ExprKind::Binary { op: BinaryOp::Named(name), .. } if name == "^"
+    ));
+}
+
+#[test]
+fn jsonb_path_deletion() {
+    let ExprKind::Binary { op, .. } = parse_expr::<Postgres>("data #- '{a,b}'").unwrap().kind
+    else {
+        panic!("not a binary expression");
+    };
+    assert_eq!(op, BinaryOp::Named("#-".into()));
+}
+
+#[test]
+fn any_type_introduces_a_string_literal() {
+    roundtrip("SELECT UUID '00000000-0000-0000-0000-000000000000'");
+    roundtrip("SELECT box '((0,0),(1,1))' && box '((0,0),(2,2))'");
+}
+
+#[test]
+fn escape_strings_resolve_octal_hex_and_unicode_escapes() {
+    let value = |sql| {
+        let ExprKind::Literal(Literal::String(s)) = parse_expr::<Postgres>(sql).unwrap().kind
+        else {
+            panic!("{sql}");
+        };
+        s.value().into_owned()
+    };
+    assert_eq!(value(r"E'\101\x42C\U00000044'"), "ABCD");
+    assert_eq!(value(r"E'\xe2\x82\xac'"), "€");
+    assert_eq!(value(r"E'😀'"), "😀");
+    assert_eq!(value(r"E'\b\f\q\\\''''"), "\u{8}\u{c}q\\''");
+    assert_eq!(value(r"E'\%'"), "%");
+    for sql in [
+        r"E'\0'",
+        r"E'\000'",
+        r"E'\x00'",
+        r"E'\xff'",
+        r"E'\u12'",
+        r"E'\uD800'",
+    ] {
+        assert!(parse_expr::<Postgres>(sql).is_err(), "accepted: {sql}");
+    }
+}

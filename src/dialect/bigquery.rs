@@ -885,7 +885,7 @@ pub fn parse_data_type<'a, D: Dialect<Ext = Builtin>>(
         } else {
             AngleArguments::Types(vec![p.nested(D::parse_data_type)?])
         };
-        p.expect_op(">")?;
+        p.expect_angle_close()?;
         data_type.angle = Some(Box::new(arguments));
     }
     Ok(data_type)
@@ -1940,7 +1940,8 @@ fn parse_array_literal<'a, D: Dialect<Ext = Builtin>>(
 }
 
 /// Parses `STRUCT<...>(values)` or `STRUCT(values)`, with the cursor on `STRUCT`.
-fn parse_struct<'a, D: Dialect<Ext = Builtin>>(
+/// In the typeless form, a value can be named with `AS name`.
+pub fn parse_struct<'a, D: Dialect<Ext = Builtin>>(
     p: &mut Parser<'a, D>,
 ) -> PResult<Expr<'a, Builtin>> {
     let ty = if p.peek_nth(1).is_op("<") {

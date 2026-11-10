@@ -30,7 +30,7 @@ use crate::ast::{
 use crate::dialect::builtin::BuiltinStatement;
 use crate::dialect::snowflake;
 use crate::dialect::{Builtin, Dialect};
-use crate::dialect::{oracle, spark};
+use crate::dialect::{bigquery, oracle, spark};
 use crate::display::comma;
 use crate::grammar::{self, prec};
 use crate::lexer::{LexResult, Lexeme, Token, TokenKind};
@@ -139,7 +139,7 @@ pub fn lex_digit_name(rest: &str) -> Option<LexResult> {
 
 #[inline]
 pub fn lex_token(rest: &str) -> Option<LexResult> {
-    lex_digit_name(rest).or_else(|| spark::lex_token(rest))
+    lex_digit_name(rest).or_else(|| spark::lex_spark_token(rest))
 }
 
 fn parse_optimize<'a, D: Dialect<Ext = Builtin>>(
@@ -405,13 +405,13 @@ impl Dialect for Databricks {
 
     #[inline]
     fn string_literal(token: Token<'_>) -> StringLiteral<'_> {
-        StringLiteral {
-            backslash_escapes: true,
-            ..grammar::string_literal(token)
-        }
+        spark::string_literal(token)
     }
 
     fn parse_prefix<'a>(p: &mut Parser<'a, Self>) -> PResult<Expr<'a, Builtin>> {
+        if p.at_keyword("STRUCT") && p.peek_nth(1).is_op("(") {
+            return bigquery::parse_struct(p);
+        }
         parse_prefix(p)
     }
 

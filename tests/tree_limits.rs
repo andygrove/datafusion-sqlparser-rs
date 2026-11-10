@@ -205,3 +205,20 @@ fn huge_chains_of_table_clauses_are_rejected_in_spark() {
         assert!(parse_query::<Spark>(&sql).is_err(), "{clause}");
     }
 }
+
+#[test]
+fn nesting_limit_can_be_changed() {
+    let parse = |depth: usize, limit: usize| {
+        let sql = format!("{}1{}", "(".repeat(depth), ")".repeat(depth));
+        Parser::<Core>::new(&sql)
+            .unwrap()
+            .with_max_nesting_depth(limit)
+            .parse_expr()
+            .map(|_| ())
+    };
+    let error = parse(5, 4).unwrap_err();
+    assert_eq!(error.message, "SQL is nested too deeply (the limit is 4)");
+    assert!(parse(5, 6).is_ok());
+    assert!(parse(100, 64).is_err());
+    assert!(parse(100, 110).is_ok());
+}

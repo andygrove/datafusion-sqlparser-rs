@@ -893,11 +893,15 @@ impl<X: AstExt> Display for Join<'_, X> {
             JoinConstraint::None | JoinConstraint::Natural => Ok(()),
             JoinConstraint::On(expr) => write!(f, " ON {expr}"),
             JoinConstraint::Using(columns) => write!(f, " USING({})", comma(columns)),
-            JoinConstraint::AsOf { condition, on } => {
+            JoinConstraint::AsOf {
+                condition,
+                constraint,
+            } => {
                 write!(f, " MATCH_CONDITION ({condition})")?;
-                match on {
-                    Some(on) => write!(f, " ON {on}"),
-                    None => Ok(()),
+                match constraint.as_ref() {
+                    JoinConstraint::On(on) => write!(f, " ON {on}"),
+                    JoinConstraint::Using(columns) => write!(f, " USING({})", comma(columns)),
+                    _ => Ok(()),
                 }
             }
         }
@@ -1266,6 +1270,7 @@ impl<X: AstExt> Display for SpecialExpr<'_, X> {
                 write_unit(f, field)?;
                 f.write_str(")")
             }
+            SpecialExpr::Niladic(name) => name.fmt(f),
             SpecialExpr::Position { needle, haystack } => {
                 write!(f, "POSITION({needle} IN {haystack})")
             }

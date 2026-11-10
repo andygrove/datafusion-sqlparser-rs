@@ -172,6 +172,7 @@ fn time_travel_is_not_in_other_dialects() {
 fn asof_join_round_trips() {
     round_trips("SELECT * FROM a ASOF JOIN b MATCH_CONDITION (a.x >= b.x)");
     round_trips("SELECT * FROM a AS c ASOF JOIN b AS d MATCH_CONDITION (c.x >= d.x) ON c.y = d.y");
+    round_trips("SELECT * FROM a ASOF JOIN b MATCH_CONDITION (a.x >= b.x) USING(y, z)");
 }
 
 #[test]

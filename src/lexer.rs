@@ -246,6 +246,23 @@ fn hex_number(bytes: &[u8]) -> LexResult {
 }
 
 #[inline]
+/// True if the point at `at` in `bytes` belongs to the number before it. A
+/// point followed by a letter or another point is left for the parser, unless
+/// the letter starts an exponent, as in `1.e5`.
+pub fn point_continues_number(bytes: &[u8], at: usize) -> bool {
+    if bytes.get(at) != Some(&b'.') {
+        return false;
+    }
+    match bytes.get(at + 1) {
+        Some(b'e' | b'E') => {
+            let sign = usize::from(matches!(bytes.get(at + 2), Some(b'+' | b'-')));
+            bytes.get(at + 2 + sign).is_some_and(u8::is_ascii_digit)
+        }
+        Some(&b) => !(is_word_start(b) || b == b'.'),
+        None => true,
+    }
+}
+
 fn number(bytes: &[u8]) -> LexResult {
     let digits = |from: usize| {
         bytes[from..]
@@ -254,12 +271,7 @@ fn number(bytes: &[u8]) -> LexResult {
             .count()
     };
     let mut len = digits(0);
-    // A point followed by a letter or another point is left for the parser.
-    if bytes.get(len) == Some(&b'.')
-        && !bytes
-            .get(len + 1)
-            .is_some_and(|&b| is_word_start(b) || b == b'.')
-    {
+    if point_continues_number(bytes, len) {
         len += 1 + digits(len + 1);
     }
     if matches!(bytes.get(len), Some(b'e' | b'E')) {

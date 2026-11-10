@@ -942,6 +942,26 @@ pub trait Dialect: 'static + Sized {
 
     /// Parses the part that `EXTRACT` takes. The text is kept as written,
     /// with any quotes.
+    /// True if the unquoted word `name` before a string makes it a literal of
+    /// that type, as `DATE` does in `DATE '2020-01-01'`.
+    #[inline]
+    fn is_typed_string_type(name: &str) -> bool {
+        grammar::is_typed_string_type(name)
+    }
+
+    /// True if the unquoted word `word`, without parentheses after it, calls a
+    /// function rather than naming a column, as `CURRENT_DATE` does.
+    #[inline]
+    fn is_niladic_function(word: &str) -> bool {
+        grammar::is_niladic_function(word)
+    }
+
+    /// Parses the offset of a window frame bound, before `PRECEDING` or
+    /// `FOLLOWING`.
+    fn parse_frame_offset<'a>(p: &mut Parser<'a, Self>) -> PResult<Expr<'a, Self::Ext>> {
+        p.parse_expr()
+    }
+
     fn parse_extract_field<'a>(p: &mut Parser<'a, Self>) -> PResult<&'a str> {
         grammar::parse_date_time_field(p)
     }

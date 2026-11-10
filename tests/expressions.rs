@@ -646,3 +646,53 @@ fn is_chains_to_the_left_of_distinct_from() {
         )
     );
 }
+
+#[test]
+fn typed_literals_can_name_a_time_zone() {
+    for sql in [
+        "TIMESTAMP WITH TIME ZONE '2024-07-01 12:00:00'",
+        "TIMESTAMP WITHOUT TIME ZONE '2024-07-01 12:00:00'",
+        "TIME WITH TIME ZONE '12:00:00+01'",
+    ] {
+        let parsed = expr(sql);
+        assert!(matches!(parsed.kind, ExprKind::TypedString(_)), "{sql}");
+        assert_eq!(parsed.to_string(), sql);
+    }
+    // Only TIMESTAMP and TIME have a time zone form.
+    assert!(rejected("DATE WITH TIME ZONE '2024-07-01'"));
+}
+
+#[test]
+fn an_exponent_can_follow_a_bare_point() {
+    for sql in ["0.e0", "2.e-1", "1.E+3"] {
+        assert!(
+            matches!(expr(sql).kind, ExprKind::Literal(Literal::Number(_))),
+            "{sql}"
+        );
+    }
+}
+
+#[test]
+fn some_words_call_functions_without_parentheses() {
+    let is_niladic = |kind: &ExprKind<'_, Builtin>| matches!(kind, ExprKind::Special(s) if matches!(**s, SpecialExpr::Niladic(_)));
+    for sql in [
+        "CURRENT_DATE",
+        "current_timestamp",
+        "LOCALTIME",
+        "CURRENT_USER",
+    ] {
+        let parsed = expr(sql);
+        assert!(is_niladic(&parsed.kind), "{sql}");
+        assert_eq!(parsed.to_string(), sql);
+    }
+    // Quoted, it is a column; with parentheses, an ordinary call.
+    assert!(matches!(expr("\"current_date\"").kind, ExprKind::Ident(_)));
+    assert!(matches!(
+        expr("CURRENT_TIMESTAMP(3)").kind,
+        ExprKind::Function { .. }
+    ));
+    // `USER` is a function in PostgreSQL but a name in the core.
+    assert!(matches!(expr("user").kind, ExprKind::Ident(_)));
+    let postgres = sqlparser::parse_expr::<sqlparser::dialect::Postgres>("user").unwrap();
+    assert!(is_niladic(&postgres.kind));
+}

@@ -60,7 +60,7 @@ pub struct Postgres;
 
 /// PostgreSQL's operators with their binding powers, longest first so that
 /// a prefix cannot match before the whole operator.
-const OPERATORS: [(&str, u8); 20] = [
+const OPERATORS: [(&str, u8); 21] = [
     ("!~~*", prec::COMPARE),
     ("!~~", prec::COMPARE),
     ("!~*", prec::COMPARE),
@@ -72,6 +72,8 @@ const OPERATORS: [(&str, u8); 20] = [
     ("~*", prec::COMPARE),
     ("->", prec::OTHER),
     ("#>", prec::OTHER),
+    // Deletes a path from a `jsonb` value.
+    ("#-", prec::OTHER),
     ("@>", prec::OTHER),
     ("<@", prec::OTHER),
     ("@?", prec::OTHER),
@@ -82,6 +84,15 @@ const OPERATORS: [(&str, u8); 20] = [
     ("~", prec::COMPARE),
     ("?", prec::OTHER),
 ];
+
+/// True for the functions PostgreSQL calls without parentheses: the standard
+/// ones, plus `USER`, `CURRENT_CATALOG`, `CURRENT_SCHEMA` and `SYSTEM_USER`.
+pub fn is_niladic_function(word: &str) -> bool {
+    grammar::is_niladic_function(word)
+        || ["USER", "CURRENT_CATALOG", "CURRENT_SCHEMA", "SYSTEM_USER"]
+            .iter()
+            .any(|name| word.eq_ignore_ascii_case(name))
+}
 
 #[inline]
 fn may_start_operator(byte: u8) -> bool {
@@ -145,7 +156,8 @@ fn operator_rule<'a, D: Dialect>(text: &str) -> Option<InfixRule<'a, D>> {
         "&" => core(BinaryOp::BitAnd),
         "<<" => core(BinaryOp::ShiftLeft),
         ">>" => core(BinaryOp::ShiftRight),
-        "^" => Some(InfixRule::binary(prec::EXP, BinaryOp::BitXor)),
+        // Exponentiation; PostgreSQL writes XOR as `#`.
+        "^" => Some(InfixRule::binary(prec::EXP, BinaryOp::Named("^".into()))),
         _ if may_start_operator(text.as_bytes()[0]) => OPERATORS
             .iter()
             .find(|(operator, _)| *operator == text)
@@ -1981,9 +1993,13 @@ pub fn lex_prefixed_string(rest: &str, postgres_only: bool) -> Option<LexResult>
     match bytes[0] {
         b'e' | b'E' if bytes.get(1) == Some(&b'\'') => {
             let string = quoted_with_backslash(&rest[1..], TokenKind::String);
-            Some(string.map(|l| Lexeme {
-                kind: TokenKind::String,
-                len: l.len + 1,
+            Some(string.and_then(|l| {
+                let body = &rest[2..l.len];
+                crate::ast::unescape_escape_string(body, '\'')?;
+                Ok(Lexeme {
+                    kind: TokenKind::String,
+                    len: l.len + 1,
+                })
             }))
         }
         b'b' | b'B' if postgres_only && bytes.get(1) == Some(&b'\'') => {
@@ -2088,11 +2104,7 @@ fn lex_postgres_number(rest: &str) -> Option<LexResult> {
     if !underscore {
         return None;
     }
-    if bytes.get(len) == Some(&b'.')
-        && !bytes
-            .get(len + 1)
-            .is_some_and(|b| b.is_ascii_alphabetic() || *b == b'.')
-    {
+    if crate::lexer::point_continues_number(bytes, len) {
         len += 1;
         loop {
             while bytes.get(len).is_some_and(u8::is_ascii_digit) {
@@ -2777,6 +2789,10 @@ impl Dialect for Postgres {
 
     fn parse_explain_options<'a>(p: &mut Parser<'a, Self>) -> PResult<Vec<ExplainOption<'a>>> {
         grammar::parse_explain_option_list(p)
+    }
+
+    fn is_niladic_function(word: &str) -> bool {
+        is_niladic_function(word)
     }
 
     fn parse_drop_object_type<'a>(p: &mut Parser<'a, Self>) -> Option<ObjectType<'a>> {

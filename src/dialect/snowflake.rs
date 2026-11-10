@@ -524,7 +524,8 @@ fn colon_key(token: Token<'_>) -> Option<Ident<'_>> {
 }
 
 pub fn at_path<D: Dialect<Ext = Builtin>>(p: &Parser<'_, D>) -> bool {
-    p.at_op(":") || colon_key(p.peek()).is_some()
+    !p.has_context(grammar::CONTEXT_COLON_SEPARATES)
+        && (p.at_op(":") || colon_key(p.peek()).is_some())
 }
 
 fn parse_colon_key<'a, D: Dialect<Ext = Builtin>>(p: &mut Parser<'a, D>) -> PResult<Ident<'a>> {
@@ -1513,16 +1514,21 @@ pub fn parse_join<'a, D: Dialect<Ext = Builtin>>(
     p.expect_op("(")?;
     let condition = p.parse_expr()?;
     p.expect_op(")")?;
-    let on = if p.eat_keyword("ON") {
-        Some(p.parse_expr()?)
+    let constraint = if p.eat_keyword("ON") {
+        JoinConstraint::On(p.parse_expr()?)
+    } else if p.eat_keyword("USING") {
+        JoinConstraint::Using(grammar::parse_ident_list(p)?)
     } else {
-        None
+        JoinConstraint::None
     };
     Ok(Some(Join {
         kind: JoinKind::AsOf,
         spelled_out: false,
         table,
-        constraint: JoinConstraint::AsOf { condition, on },
+        constraint: JoinConstraint::AsOf {
+            condition,
+            constraint: Box::new(constraint),
+        },
     }))
 }
 
@@ -1976,6 +1982,10 @@ impl fmt::Display for SnowflakeExpr<'_> {
         match self {
             SnowflakeExpr::Path { value, path } => {
                 fmt::Display::fmt(&**value, f)?;
+                // A path always starts with `:`, even before an index.
+                if !matches!(path.first(), Some(PathElement::Colon(_))) {
+                    f.write_str(":")?;
+                }
                 for element in path {
                     match element {
                         PathElement::Colon(key) => write!(f, ":{key}")?,

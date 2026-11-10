@@ -33,7 +33,7 @@ use crate::ast::{
 use crate::dialect::builtin::BuiltinStatement;
 use crate::dialect::mysql::{self, MySqlExpr};
 use crate::dialect::{Builtin, Dialect, ExprExtOf};
-use crate::dialect::{oracle, postgres};
+use crate::dialect::{bigquery, oracle, postgres};
 use crate::display::{
     SpaceOrNewline, comma, write_columns, write_create_flags, write_if_not_exists,
 };
@@ -181,6 +181,19 @@ pub struct PartitionColumn<'a> {
 /// Reads backtick-quoted names, strings in either quote with backslash
 /// escapes, and the operators the core does not have.
 #[inline]
+/// Lexes Spark's tokens: those of [`lex_token`], plus raw strings, `r'...'`,
+/// in which a backslash is an ordinary character.
+pub fn lex_spark_token(rest: &str) -> Option<LexResult> {
+    if let [b'r' | b'R', b'"' | b'\'', ..] = rest.as_bytes() {
+        return Some(quoted(&rest[1..], TokenKind::String).map(|l| Lexeme {
+            kind: TokenKind::String,
+            len: l.len + 1,
+        }));
+    }
+    lex_token(rest)
+}
+
+/// Lexes the tokens Spark shares with Hive.
 pub fn lex_token(rest: &str) -> Option<LexResult> {
     let op = |len| {
         Some(Ok(Lexeme {
@@ -200,6 +213,26 @@ pub fn lex_token(rest: &str) -> Option<LexResult> {
         [b':', b':', ..] => op(2),
         [b':', next, ..] if !next.is_ascii_alphanumeric() && *next != b'_' => op(1),
         _ => None,
+    }
+}
+
+/// Builds a string literal, in which a backslash starts an escape unless the
+/// string is raw: `r'...'`.
+pub fn string_literal(token: Token<'_>) -> StringLiteral<'_> {
+    if matches!(token.text.as_bytes()[0], b'r' | b'R') {
+        let text = &token.text[1..];
+        return StringLiteral {
+            text: Cow::Borrowed(&text[1..text.len() - 1]),
+            quote: char::from(text.as_bytes()[0]),
+            backslash_escapes: false,
+            national: false,
+            prefix: crate::ast::StringPrefix::Raw,
+            triple: false,
+        };
+    }
+    StringLiteral {
+        backslash_escapes: true,
+        ..grammar::string_literal(token)
     }
 }
 
@@ -428,7 +461,7 @@ fn parse_type_after_name<'a, D: Dialect>(
         }
         AngleArguments::Types(types)
     };
-    p.expect_op(">")?;
+    p.expect_angle_close()?;
     data_type.angle = Some(Box::new(arguments));
     Ok(data_type)
 }
@@ -1258,18 +1291,19 @@ impl Dialect for Spark {
 
     #[inline]
     fn lex_token(rest: &str) -> Option<LexResult> {
-        lex_token(rest)
+        lex_spark_token(rest)
     }
 
     #[inline]
     fn string_literal(token: Token<'_>) -> StringLiteral<'_> {
-        StringLiteral {
-            backslash_escapes: true,
-            ..grammar::string_literal(token)
-        }
+        string_literal(token)
     }
 
     fn parse_prefix<'a>(p: &mut Parser<'a, Self>) -> PResult<Expr<'a, Builtin>> {
+        // `STRUCT(value AS name, ...)`, which BigQuery writes the same way.
+        if p.at_keyword("STRUCT") && p.peek_nth(1).is_op("(") {
+            return bigquery::parse_struct(p);
+        }
         parse_prefix(p)
     }
 

@@ -226,12 +226,36 @@ fn parse_frame_bound<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<FrameBoun
         p.expect_keyword("FOLLOWING")?;
         return Ok(FrameBound::UnboundedFollowing);
     }
-    let offset = p.parse_expr()?;
+    let offset = D::parse_frame_offset(p)?;
     if p.eat_keyword("PRECEDING") {
         return Ok(FrameBound::Preceding(offset));
     }
     p.expect_keyword("FOLLOWING")?;
     Ok(FrameBound::Following(offset))
+}
+
+/// True for the types that can introduce a string literal, as in
+/// `DATE '2020-01-01'`.
+pub fn is_typed_string_type(name: &str) -> bool {
+    ["DATE", "TIME", "TIMESTAMP", "TIMESTAMPTZ", "DATETIME"]
+        .iter()
+        .any(|type_name| name.eq_ignore_ascii_case(type_name))
+}
+
+/// True for the standard functions written without parentheses, such as
+/// `CURRENT_DATE`.
+pub fn is_niladic_function(word: &str) -> bool {
+    const NAMES: [&str; 8] = [
+        "CURRENT_DATE",
+        "CURRENT_TIME",
+        "CURRENT_TIMESTAMP",
+        "LOCALTIME",
+        "LOCALTIMESTAMP",
+        "CURRENT_USER",
+        "SESSION_USER",
+        "CURRENT_ROLE",
+    ];
+    NAMES.iter().any(|name| word.eq_ignore_ascii_case(name))
 }
 
 /// Parses a column, a qualified name, or a function call. A plain column is
@@ -244,6 +268,9 @@ pub fn parse_name_expr<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Expr<'a
         return Ok(expr);
     }
     if !p.at_op(".") && !D::at_function_call(p) {
+        if first.quote.is_none() && D::is_niladic_function(&first.text) {
+            return Ok(special(SpecialExpr::Niladic(first)));
+        }
         return Ok(ExprKind::Ident(first).into());
     }
 
@@ -396,6 +423,19 @@ fn unit_follows_interval_value<D: Dialect>(p: &Parser<'_, D>) -> bool {
     }
 }
 
+/// True at `WITH TIME ZONE 'text'` or `WITHOUT TIME ZONE 'text'` after the
+/// unquoted word `first`, if that is `TIMESTAMP` or `TIME`.
+fn at_time_zone_literal<'a, D: Dialect>(p: &Parser<'a, D>, first: &Ident<'a>) -> bool {
+    let next = p.peek();
+    (next.is_word("WITH") || next.is_word("WITHOUT"))
+        && p.peek_nth(1).is_word("TIME")
+        && p.peek_nth(2).is_word("ZONE")
+        && p.peek_nth(3).kind == TokenKind::String
+        && ["TIMESTAMP", "TIME"]
+            .iter()
+            .any(|name| first.text.eq_ignore_ascii_case(name))
+}
+
 /// Parses what a keyword introduces after the unquoted word `first` was read:
 /// an interval, a typed literal or an array. Only runs its comparisons when
 /// the next token could continue such an expression, so that plain columns
@@ -410,10 +450,7 @@ fn parse_keyword_expr<'a, D: Dialect>(
             if first.text.eq_ignore_ascii_case("INTERVAL") {
                 return D::parse_interval(p).map(Some);
             }
-            let is_type = next.kind == TokenKind::String
-                && ["DATE", "TIME", "TIMESTAMP", "TIMESTAMPTZ", "DATETIME"]
-                    .iter()
-                    .any(|name| first.text.eq_ignore_ascii_case(name));
+            let is_type = next.kind == TokenKind::String && D::is_typed_string_type(&first.text);
             if !is_type {
                 return Ok(None);
             }
@@ -429,6 +466,30 @@ fn parse_keyword_expr<'a, D: Dialect>(
                         array: ArrayType::None,
                     },
                     value: D::string_literal(next),
+                }))
+                .into(),
+            ))
+        }
+        TokenKind::Word if at_time_zone_literal(p, &first) => {
+            let suffix = if p.advance().is_word("WITH") {
+                DataTypeSuffix::WithTimeZone
+            } else {
+                DataTypeSuffix::WithoutTimeZone
+            };
+            p.advance();
+            p.advance();
+            let value = D::string_literal(p.advance());
+            Ok(Some(
+                ExprKind::TypedString(Box::new(TypedString {
+                    ty: DataType {
+                        qualifier: Vec::new(),
+                        angle: None,
+                        name: first,
+                        args: Vec::new(),
+                        suffix,
+                        array: ArrayType::None,
+                    },
+                    value,
                 }))
                 .into(),
             ))
@@ -989,11 +1050,16 @@ fn parse_subscript<'a, D: Dialect>(
 }
 
 /// Parses a bound of a slice, which ends at `:` or `]`.
+/// Set while parsing an expression that a `:` ends, such as a slice bound, so
+/// that a dialect whose `:` is also an operator leaves it alone.
+pub const CONTEXT_COLON_SEPARATES: u32 = 1 << 30;
+
 fn parse_slice_bound<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Option<Expr<'a, D::Ext>>> {
     if p.at_op(":") || p.at_op("]") {
         Ok(None)
     } else {
-        p.parse_expr().map(Some)
+        p.with_context(CONTEXT_COLON_SEPARATES, Parser::parse_expr)
+            .map(Some)
     }
 }
 

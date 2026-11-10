@@ -324,6 +324,7 @@ fn parse_lock<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<LockClause<'a>> 
 }
 
 pub fn parse_select<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Select<'a, D::Ext>> {
+    let start = p.peek().span.start;
     p.expect_keyword("SELECT")?;
     let (modifiers, quantifier) = D::parse_select_head(p)?;
     let projection = D::parse_projection(p)?;
@@ -335,13 +336,18 @@ pub fn parse_select<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Select<'a,
         Vec::new()
     };
 
-    parse_select_tail(p, modifiers, quantifier, projection, into, from, false)
+    let select = parse_select_tail(p, modifiers, quantifier, projection, into, from, false)?;
+    Ok(Select {
+        span: p.span_since(start),
+        ..select
+    })
 }
 
 /// Parses `FROM tables [SELECT items]` and the clauses that follow.
 pub fn parse_from_first_select<'a, D: Dialect>(
     p: &mut Parser<'a, D>,
 ) -> PResult<Select<'a, D::Ext>> {
+    let start = p.peek().span.start;
     p.expect_keyword("FROM")?;
     let from = D::parse_from_list(p)?;
     let (modifiers, quantifier, projection) = if p.eat_keyword("SELECT") {
@@ -350,7 +356,11 @@ pub fn parse_from_first_select<'a, D: Dialect>(
     } else {
         (Default::default(), SetQuantifier::None, Vec::new())
     };
-    parse_select_tail(p, modifiers, quantifier, projection, None, from, true)
+    let select = parse_select_tail(p, modifiers, quantifier, projection, None, from, true)?;
+    Ok(Select {
+        span: p.span_since(start),
+        ..select
+    })
 }
 
 /// Parses the clauses after the projection and `FROM`, whichever came first.
@@ -426,6 +436,7 @@ fn parse_select_tail<'a, D: Dialect>(
         qualify,
         windows,
         from_first,
+        span: Span::default(),
     })
 }
 
@@ -478,10 +489,12 @@ pub fn at_list_end<'a, D: Dialect>(p: &Parser<'a, D>) -> bool {
         "FOR",
     ];
     let token = p.peek();
+    // A clause word that names an argument, as in `f(a, offset => 1)`.
+    let names_argument = p.peek_nth(1).is_op("=>") || p.peek_nth(1).is_op(":=");
     match token.kind {
         TokenKind::Eof => true,
         TokenKind::Op => token.text == ")" || token.text == ";",
-        TokenKind::Word => CLAUSES.iter().any(|word| token.is_word(word)),
+        TokenKind::Word => !names_argument && CLAUSES.iter().any(|word| token.is_word(word)),
         _ => false,
     }
 }
@@ -719,7 +732,7 @@ pub(super) fn at_set_operand_group<'a, D: Dialect>(p: &Parser<'a, D>) -> bool {
     let mut leading = 0;
     while p.peek_nth(leading).is_op("(") {
         leading += 1;
-        if leading > MAX_NESTING_DEPTH {
+        if leading > p.max_nesting_depth() {
             return false;
         }
     }
@@ -779,7 +792,7 @@ fn at_nested_join<'a, D: Dialect>(p: &Parser<'a, D>) -> bool {
     while p.peek_nth(leading).is_op("(") {
         leading += 1;
         // The nesting limit rejects anything deeper, however it is read.
-        if leading > MAX_NESTING_DEPTH {
+        if leading > p.max_nesting_depth() {
             return true;
         }
     }

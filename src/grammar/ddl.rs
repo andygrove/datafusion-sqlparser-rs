@@ -212,7 +212,16 @@ pub fn parse_create_table<'a, D: Dialect>(
 ) -> PResult<CreateTable<'a, D::Ext>> {
     let if_not_exists = parse_if_not_exists(p)?;
     let name = parse_object_name(p)?;
+    parse_create_table_after_name(p, flags, if_not_exists, name)
+}
 
+/// Parses what follows the table's name in `CREATE ... TABLE`.
+pub fn parse_create_table_after_name<'a, D: Dialect>(
+    p: &mut Parser<'a, D>,
+    flags: CreateFlags,
+    if_not_exists: bool,
+    name: ObjectName<'a>,
+) -> PResult<CreateTable<'a, D::Ext>> {
     let (columns, constraints) = if p.at_op("(") {
         parse_columns(p)?
     } else {

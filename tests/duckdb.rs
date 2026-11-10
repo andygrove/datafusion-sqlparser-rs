@@ -413,8 +413,18 @@ fn aggregate_order_by_without_arguments() {
 }
 
 #[test]
+fn built_in_types_introduce_string_literals() {
+    round_trips("SELECT UUID '00000000-0000-0000-0000-000000000000'");
+    round_trips("SELECT INTEGER '42', VARCHAR 'x'");
+    // PostgreSQL's geometric types are not DuckDB's.
+    rejected("SELECT box '1,2,3,4' + 1");
+}
+
+#[test]
 fn explain_takes_options() {
     round_trips("EXPLAIN (ANALYZE, VERBOSE) SELECT 1");
+    round_trips("EXPLAIN (VALUES (1), (2))");
+    round_trips("EXPLAIN (SELECT 1)");
 }
 
 #[test]
@@ -665,4 +675,56 @@ mod shape {
         let parsed = query("WITH a AS (SELECT 1) SELECT 1");
         assert_eq!(parsed.ctes()[0].materialized, None);
     }
+}
+
+#[test]
+fn an_arrow_is_a_lambda_only_as_an_argument() {
+    use sqlparser::ast::{BinaryOp, ExprKind, FunctionArg, SpecialExpr};
+    let ExprKind::Function { args, .. } =
+        sqlparser::parse_expr::<DuckDb>("list_transform(l, x -> x + 1)")
+            .unwrap()
+            .kind
+    else {
+        panic!("not a call");
+    };
+    assert!(matches!(
+        &args[1],
+        FunctionArg::Expr(expr) if matches!(&expr.kind, ExprKind::Special(s) if matches!(**s, SpecialExpr::Lambda { .. }))
+    ));
+    // Elsewhere it extracts from JSON, binding tighter than `=`.
+    let ExprKind::Binary { op, left, .. } = sqlparser::parse_expr::<DuckDb>("a -> 'b' = 'c'")
+        .unwrap()
+        .kind
+    else {
+        panic!("not a comparison");
+    };
+    assert_eq!(op, BinaryOp::Eq);
+    assert!(
+        matches!(left.kind, ExprKind::Binary { op: BinaryOp::Named(name), .. } if name == "->")
+    );
+}
+
+#[test]
+fn equals_compares_in_arguments() {
+    use sqlparser::ast::{BinaryOp, ExprKind, FunctionArg};
+    let ExprKind::Function { args, .. } =
+        sqlparser::parse_expr::<DuckDb>("coalesce(x = 'y', false)")
+            .unwrap()
+            .kind
+    else {
+        panic!("not a call");
+    };
+    assert!(matches!(
+        &args[0],
+        FunctionArg::Expr(expr) if matches!(expr.kind, ExprKind::Binary { op: BinaryOp::Eq, .. })
+    ));
+    // A clause word can name an argument after a comma.
+    round_trips("SELECT lead(expr => v, offset => 1)");
+}
+
+#[test]
+fn extract_takes_duckdb_spellings_of_parts() {
+    round_trips("SELECT EXTRACT(us FROM t)");
+    round_trips("SELECT EXTRACT(msec FROM t)");
+    rejected("SELECT EXTRACT(jiffy FROM t)");
 }
