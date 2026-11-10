@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#[cfg(not(feature = "std"))]
+use alloc::vec;
+
 use crate::ast::{
     AddDropSync, ClusteredBy, CreateFunction, HiveDelimiter, HiveDistributionStyle, HiveFormat,
     HiveIOFormat, HiveLoadDataFormat, HiveRowDelimiter, HiveRowFormat, Msck, Statement, Use,

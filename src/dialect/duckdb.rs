@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+
 use crate::ast::{AttachDuckDBDatabaseOption, Statement};
 use crate::dialect::Dialect;
 use crate::keywords::Keyword;
