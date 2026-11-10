@@ -423,3 +423,38 @@ fn custom_create_function_parser() {
         ParserError::ParserError("or_alter=false or_replace=true temporary=true".to_string())
     );
 }
+
+#[test]
+fn custom_use_parser() {
+    #[derive(Debug)]
+    struct MyDialect {}
+
+    impl Dialect for MyDialect {
+        fn is_identifier_start(&self, ch: char) -> bool {
+            ch.is_alphabetic()
+        }
+
+        fn is_identifier_part(&self, ch: char) -> bool {
+            ch.is_alphanumeric()
+        }
+
+        fn parse_use(
+            &self,
+            parser: &mut Parser,
+        ) -> Option<Result<sqlparser::ast::Statement, ParserError>> {
+            parser
+                .parse_keyword(sqlparser::keywords::Keyword::DEFAULT)
+                .then_some(Ok(sqlparser::ast::Statement::Use(
+                    sqlparser::ast::Use::Default,
+                )))
+        }
+    }
+
+    let dialect = MyDialect {};
+    let statements = Parser::parse_sql(&dialect, "USE DEFAULT").unwrap();
+    assert_eq!(statements[0].to_string(), "USE DEFAULT");
+
+    // A `None` from the hook falls back to the core rule.
+    let statements = Parser::parse_sql(&dialect, "USE mydb").unwrap();
+    assert_eq!(statements[0].to_string(), "USE mydb");
+}

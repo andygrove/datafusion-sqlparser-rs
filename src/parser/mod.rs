@@ -17117,16 +17117,12 @@ impl<'a> Parser<'a> {
 
     /// Parse a `USE` statement (database/catalog/schema/warehouse/role selection).
     pub fn parse_use(&mut self) -> Result<Statement, ParserError> {
+        if let Some(statement) = self.dialect.parse_use(self) {
+            return statement;
+        }
+
         // Determine which keywords are recognized by the current dialect
-        let parsed_keyword = if dialect_of!(self is HiveDialect) {
-            // HiveDialect accepts USE DEFAULT; statement without any db specified
-            if self.parse_keyword(Keyword::DEFAULT) {
-                return Ok(Statement::Use(Use::Default));
-            }
-            None // HiveDialect doesn't expect any other specific keyword after `USE`
-        } else if dialect_of!(self is DatabricksDialect) {
-            self.parse_one_of_keywords(&[Keyword::CATALOG, Keyword::DATABASE, Keyword::SCHEMA])
-        } else if dialect_of!(self is SnowflakeDialect) {
+        let parsed_keyword = if dialect_of!(self is SnowflakeDialect) {
             self.parse_one_of_keywords(&[
                 Keyword::DATABASE,
                 Keyword::SCHEMA,
@@ -17138,6 +17134,14 @@ impl<'a> Parser<'a> {
             None // No specific keywords for other dialects, including GenericDialect
         };
 
+        self.parse_use_target(parsed_keyword)
+    }
+
+    /// Parse the target of a `USE` statement, after any object type keyword.
+    pub(crate) fn parse_use_target(
+        &mut self,
+        parsed_keyword: Option<Keyword>,
+    ) -> Result<Statement, ParserError> {
         let result = if matches!(parsed_keyword, Some(Keyword::SECONDARY)) {
             self.parse_secondary_roles()?
         } else {

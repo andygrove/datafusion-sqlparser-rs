@@ -1132,6 +1132,15 @@ pub trait Dialect: Debug + Any {
         None
     }
 
+    /// Dialect-specific `USE` parser override.
+    ///
+    /// Called once the `USE` keyword has been consumed.
+    ///
+    /// If `None` is returned, falls back to the default behavior.
+    fn parse_use(&self, _parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
+        None
+    }
+
     /// Dialect-specific statement parser override
     ///
     /// This method is called to parse the next statement.

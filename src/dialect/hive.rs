@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use crate::ast::{CreateFunction, Statement};
+use crate::ast::{CreateFunction, Statement, Use};
 use crate::dialect::Dialect;
 use crate::keywords::{Keyword, RESERVED_FOR_TABLE_FACTOR};
 use crate::parser::{Parser, ParserError};
@@ -26,6 +26,14 @@ use crate::parser::{Parser, ParserError};
 pub struct HiveDialect {}
 
 impl Dialect for HiveDialect {
+    /// Hive accepts `USE DEFAULT` with no database named.
+    fn parse_use(&self, parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
+        if parser.parse_keyword(Keyword::DEFAULT) {
+            return Some(Ok(Statement::Use(Use::Default)));
+        }
+        None
+    }
+
     fn parse_create_function(
         &self,
         parser: &mut Parser,
