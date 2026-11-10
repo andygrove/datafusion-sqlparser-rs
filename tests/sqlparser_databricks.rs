@@ -797,3 +797,10 @@ fn parse_databricks_collated_data_types() {
         ))
     );
 }
+
+#[test]
+fn parse_create_table_using() {
+    databricks().verified_stmt("CREATE TABLE t (i INT, s STRING) USING parquet");
+    databricks().verified_stmt("CREATE TABLE IF NOT EXISTS t (i INT) USING delta");
+    databricks().verified_stmt("CREATE TABLE t (i INT) USING parquet LOCATION '/data/t'");
+}

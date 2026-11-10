@@ -123,6 +123,12 @@ macro_rules! spark_family_rules {
         fn supports_pipe_operator(&self) -> bool {
             true
         }
+
+        /// See <https://spark.apache.org/docs/latest/sql-ref-syntax-ddl-create-table-datasource.html>
+        /// See <https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-create-table-using>
+        fn supports_create_table_using(&self) -> bool {
+            true
+        }
     };
 }
 pub(super) use spark_family_rules;
@@ -136,11 +142,6 @@ pub struct SparkSqlDialect;
 
 impl Dialect for SparkSqlDialect {
     spark_family_rules!();
-
-    /// See <https://spark.apache.org/docs/latest/sql-ref-syntax-ddl-create-table-datasource.html>
-    fn supports_create_table_using(&self) -> bool {
-        true
-    }
 
     /// `LONG` is an alias for `BIGINT` in Spark SQL.
     ///
