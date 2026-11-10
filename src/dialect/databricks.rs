@@ -19,6 +19,7 @@ use crate::ast::Statement;
 use crate::dialect::Dialect;
 use crate::keywords::Keyword;
 use crate::parser::{Parser, ParserError};
+use crate::tokenizer::{Token, Word};
 
 /// A [`Dialect`] for [Databricks SQL](https://www.databricks.com/)
 ///
@@ -28,6 +29,22 @@ use crate::parser::{Parser, ParserError};
 pub struct DatabricksDialect;
 
 impl Dialect for DatabricksDialect {
+    /// Databricks has functions named `exists` and `array`, as well as the
+    /// `EXISTS (SELECT ...)` predicate.
+    fn is_keyword_a_function_name(&self, keyword: Keyword, parser: &Parser) -> bool {
+        match keyword {
+            Keyword::EXISTS => !matches!(
+                parser.peek_nth_token_ref(1).token,
+                Token::Word(Word {
+                    keyword: Keyword::SELECT | Keyword::WITH,
+                    ..
+                })
+            ),
+            Keyword::ARRAY => parser.peek_token_ref().token == Token::LParen,
+            _ => false,
+        }
+    }
+
     /// See <https://docs.databricks.com/en/sql/language-manual/sql-ref-syntax-ddl-use-catalog.html>
     fn parse_use(&self, parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
         let keyword =

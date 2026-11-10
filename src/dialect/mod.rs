@@ -1141,6 +1141,14 @@ pub trait Dialect: Debug + Any {
         None
     }
 
+    /// Returns true if the reserved `keyword`, just consumed where an expression
+    /// was expected, should be read as an ordinary name such as a function.
+    ///
+    /// The parser is positioned on the token following `keyword`.
+    fn is_keyword_a_function_name(&self, _keyword: Keyword, _parser: &Parser) -> bool {
+        false
+    }
+
     /// Dialect-specific statement parser override
     ///
     /// This method is called to parse the next statement.

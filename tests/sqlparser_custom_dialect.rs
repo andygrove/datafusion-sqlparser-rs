@@ -458,3 +458,34 @@ fn custom_use_parser() {
     let statements = Parser::parse_sql(&dialect, "USE mydb").unwrap();
     assert_eq!(statements[0].to_string(), "USE mydb");
 }
+
+#[test]
+fn custom_keyword_as_function_name() {
+    #[derive(Debug)]
+    struct MyDialect {}
+
+    impl Dialect for MyDialect {
+        fn is_identifier_start(&self, ch: char) -> bool {
+            ch.is_alphabetic()
+        }
+
+        fn is_identifier_part(&self, ch: char) -> bool {
+            ch.is_alphanumeric()
+        }
+
+        fn is_keyword_a_function_name(
+            &self,
+            keyword: sqlparser::keywords::Keyword,
+            _parser: &Parser,
+        ) -> bool {
+            keyword == sqlparser::keywords::Keyword::CAST
+        }
+    }
+
+    let expr = Parser::new(&MyDialect {})
+        .try_with_sql("CAST(a, b)")
+        .unwrap()
+        .parse_expr()
+        .unwrap();
+    assert!(matches!(expr, Expr::Function(_)));
+}

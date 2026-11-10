@@ -1555,6 +1555,10 @@ impl<'a> Parser<'a> {
         w: &Word,
         w_span: Span,
     ) -> Result<Option<Expr>, ParserError> {
+        if self.dialect.is_keyword_a_function_name(w.keyword, self) {
+            return Ok(None);
+        }
+
         match w.keyword {
             Keyword::TRUE | Keyword::FALSE if self.dialect.supports_boolean_literals() => {
                 self.prev_token();
@@ -1568,45 +1572,37 @@ impl<'a> Parser<'a> {
             | Keyword::CURRENT_USER
             | Keyword::SESSION_USER
             | Keyword::USER
-            if dialect_of!(self is PostgreSqlDialect | GenericDialect) =>
-                {
-                    Ok(Some(Expr::Function(Function {
-                        name: ObjectName::from(vec![w.to_ident(w_span)]),
-                        uses_odbc_syntax: false,
-                        parameters: FunctionArguments::None,
-                        args: FunctionArguments::None,
-                        null_treatment: None,
-                        filter: None,
-                        over: None,
-                        within_group: vec![],
-                    })))
-                }
+                if dialect_of!(self is PostgreSqlDialect | GenericDialect) =>
+            {
+                Ok(Some(Expr::Function(Function {
+                    name: ObjectName::from(vec![w.to_ident(w_span)]),
+                    uses_odbc_syntax: false,
+                    parameters: FunctionArguments::None,
+                    args: FunctionArguments::None,
+                    null_treatment: None,
+                    filter: None,
+                    over: None,
+                    within_group: vec![],
+                })))
+            }
             Keyword::CURRENT_TIMESTAMP
             | Keyword::CURRENT_TIME
             | Keyword::CURRENT_DATE
             | Keyword::LOCALTIME
             | Keyword::LOCALTIMESTAMP => {
-                Ok(Some(self.parse_time_functions(ObjectName::from(vec![w.to_ident(w_span)]))?))
+                Ok(Some(self.parse_time_functions(ObjectName::from(vec![
+                    w.to_ident(w_span),
+                ]))?))
             }
             Keyword::CASE => Ok(Some(self.parse_case_expr()?)),
             Keyword::CONVERT => Ok(Some(self.parse_convert_expr(false)?)),
-            Keyword::TRY_CONVERT if self.dialect.supports_try_convert() => Ok(Some(self.parse_convert_expr(true)?)),
+            Keyword::TRY_CONVERT if self.dialect.supports_try_convert() => {
+                Ok(Some(self.parse_convert_expr(true)?))
+            }
             Keyword::CAST => Ok(Some(self.parse_cast_expr(CastKind::Cast)?)),
             Keyword::TRY_CAST => Ok(Some(self.parse_cast_expr(CastKind::TryCast)?)),
             Keyword::SAFE_CAST => Ok(Some(self.parse_cast_expr(CastKind::SafeCast)?)),
-            Keyword::EXISTS
-            // Support parsing Databricks has a function named `exists`.
-            if !dialect_of!(self is DatabricksDialect)
-                || matches!(
-                        self.peek_nth_token_ref(1).token,
-                        Token::Word(Word {
-                            keyword: Keyword::SELECT | Keyword::WITH,
-                            ..
-                        })
-                    ) =>
-                {
-                    Ok(Some(self.parse_exists_expr(false)?))
-                }
+            Keyword::EXISTS => Ok(Some(self.parse_exists_expr(false)?)),
             Keyword::EXTRACT => Ok(Some(self.parse_extract_expr()?)),
             Keyword::CEIL => Ok(Some(self.parse_ceil_floor_expr(true)?)),
             Keyword::FLOOR => Ok(Some(self.parse_ceil_floor_expr(false)?)),
@@ -1626,23 +1622,23 @@ impl<'a> Parser<'a> {
                 Ok(Some(self.parse_array_expr(true)?))
             }
             Keyword::ARRAY
-            if self.peek_token_ref().token == Token::LParen
-                && !dialect_of!(self is ClickHouseDialect | DatabricksDialect) =>
-                {
-                    self.expect_token(&Token::LParen)?;
-                    let query = self.parse_query()?;
-                    self.expect_token(&Token::RParen)?;
-                    Ok(Some(Expr::Function(Function {
-                        name: ObjectName::from(vec![w.to_ident(w_span)]),
-                        uses_odbc_syntax: false,
-                        parameters: FunctionArguments::None,
-                        args: FunctionArguments::Subquery(query),
-                        filter: None,
-                        null_treatment: None,
-                        over: None,
-                        within_group: vec![],
-                    })))
-                }
+                if self.peek_token_ref().token == Token::LParen
+                    && !dialect_of!(self is ClickHouseDialect) =>
+            {
+                self.expect_token(&Token::LParen)?;
+                let query = self.parse_query()?;
+                self.expect_token(&Token::RParen)?;
+                Ok(Some(Expr::Function(Function {
+                    name: ObjectName::from(vec![w.to_ident(w_span)]),
+                    uses_odbc_syntax: false,
+                    parameters: FunctionArguments::None,
+                    args: FunctionArguments::Subquery(query),
+                    filter: None,
+                    null_treatment: None,
+                    over: None,
+                    within_group: vec![],
+                })))
+            }
             Keyword::NOT => Ok(Some(self.parse_not()?)),
             Keyword::MATCH if self.dialect.supports_match_against() => {
                 Ok(Some(self.parse_match_against()?))
@@ -1655,7 +1651,10 @@ impl<'a> Parser<'a> {
                 let expr = self.parse_subexpr(self.dialect.prec_value(Precedence::PlusMinus))?;
                 Ok(Some(Expr::Prior(Box::new(expr))))
             }
-            Keyword::MAP if *self.peek_token_ref() == Token::LBrace && self.dialect.support_map_literal_syntax() => {
+            Keyword::MAP
+                if *self.peek_token_ref() == Token::LBrace
+                    && self.dialect.support_map_literal_syntax() =>
+            {
                 Ok(Some(self.parse_duckdb_map_literal()?))
             }
             Keyword::APPROXIMATE
@@ -1664,10 +1663,12 @@ impl<'a> Parser<'a> {
             {
                 self.maybe_parse(|parser| {
                     let function_name = parser.parse_object_name(false)?;
-                    parser.parse_function(function_name).map(|function| Expr::Prefixed {
-                        prefix: w.to_ident(w_span),
-                        value: Box::new(function),
-                    })
+                    parser
+                        .parse_function(function_name)
+                        .map(|function| Expr::Prefixed {
+                            prefix: w.to_ident(w_span),
+                            value: Box::new(function),
+                        })
                 })
             }
             Keyword::LAMBDA if self.dialect.supports_lambda_keyword_syntax() => {
