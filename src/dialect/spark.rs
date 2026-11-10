@@ -137,6 +137,21 @@ macro_rules! spark_family_rules {
         fn supports_long_type_as_bigint(&self) -> bool {
             true
         }
+
+        /// Parse the `DIV` keyword as integer division.
+        ///
+        /// Example: `SELECT 10 DIV 3` returns `3`.
+        ///
+        /// See <https://spark.apache.org/docs/latest/sql-ref-functions-builtin-math.html>
+        /// See <https://docs.databricks.com/aws/en/sql/language-manual/functions/div>
+        fn parse_infix(
+            &self,
+            parser: &mut Parser,
+            expr: &Expr,
+            precedence: u8,
+        ) -> Option<Result<Expr, ParserError>> {
+            super::parse_div_infix(parser, expr, precedence)
+        }
     };
 }
 pub(super) use spark_family_rules;
@@ -150,18 +165,4 @@ pub struct SparkSqlDialect;
 
 impl Dialect for SparkSqlDialect {
     spark_family_rules!();
-
-    /// Parse the `DIV` keyword as integer division.
-    ///
-    /// Example: `SELECT 10 DIV 3` returns `3`.
-    ///
-    /// See <https://spark.apache.org/docs/latest/sql-ref-functions-builtin-math.html>
-    fn parse_infix(
-        &self,
-        parser: &mut Parser,
-        expr: &Expr,
-        precedence: u8,
-    ) -> Option<Result<Expr, ParserError>> {
-        super::parse_div_infix(parser, expr, precedence)
-    }
 }

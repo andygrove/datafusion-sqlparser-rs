@@ -809,3 +809,15 @@ fn parse_create_table_using() {
 fn parse_long_type_as_bigint() {
     databricks().one_statement_parses_to("CREATE TABLE t (id LONG)", "CREATE TABLE t (id BIGINT)");
 }
+
+#[test]
+fn parse_div_infix() {
+    let expr = databricks().verified_expr("10 DIV 3");
+    assert!(matches!(
+        expr,
+        Expr::BinaryOp {
+            op: BinaryOperator::MyIntegerDivide,
+            ..
+        }
+    ));
+}

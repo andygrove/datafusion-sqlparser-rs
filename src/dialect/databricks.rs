@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use crate::ast::Statement;
+use crate::ast::{Expr, Statement};
 use crate::dialect::spark::spark_family_rules;
 use crate::dialect::Dialect;
 use crate::keywords::Keyword;
