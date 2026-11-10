@@ -15,10 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use crate::ast::{CreateFunction, Statement, Use};
+use crate::ast::{
+    AddDropSync, ClusteredBy, CreateFunction, HiveDelimiter, HiveDistributionStyle, HiveFormat,
+    HiveIOFormat, HiveLoadDataFormat, HiveRowDelimiter, HiveRowFormat, Msck, Statement, Use,
+};
 use crate::dialect::Dialect;
 use crate::keywords::{Keyword, RESERVED_FOR_TABLE_FACTOR};
-use crate::parser::{Parser, ParserError};
+use crate::parser::{IsOptional::Mandatory, Parser, ParserError};
+use crate::tokenizer::Token;
 
 /// A [`Dialect`] for [Hive](https://hive.apache.org/).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -194,5 +198,250 @@ impl Parser<'_> {
             options: None,
             remote_connection: None,
         })
+    }
+
+    /// Parse `MSCK` statement.
+    pub fn parse_msck(&mut self) -> Result<Msck, ParserError> {
+        let repair = self.parse_keyword(Keyword::REPAIR);
+        self.expect_keyword_is(Keyword::TABLE)?;
+        let table_name = self.parse_object_name(false)?;
+        let partition_action = self
+            .maybe_parse(|parser| {
+                let pa = match parser.parse_one_of_keywords(&[
+                    Keyword::ADD,
+                    Keyword::DROP,
+                    Keyword::SYNC,
+                ]) {
+                    Some(Keyword::ADD) => Some(AddDropSync::ADD),
+                    Some(Keyword::DROP) => Some(AddDropSync::DROP),
+                    Some(Keyword::SYNC) => Some(AddDropSync::SYNC),
+                    _ => None,
+                };
+                parser.expect_keyword_is(Keyword::PARTITIONS)?;
+                Ok(pa)
+            })?
+            .unwrap_or_default();
+        Ok(Msck {
+            repair,
+            table_name,
+            partition_action,
+        })
+    }
+
+    /// Parse Hive distribution style.
+    ///
+    /// TODO: Support parsing for `SKEWED` distribution style.
+    pub fn parse_hive_distribution(&mut self) -> Result<HiveDistributionStyle, ParserError> {
+        if self.parse_keywords(&[Keyword::PARTITIONED, Keyword::BY]) {
+            self.expect_token(&Token::LParen)?;
+            let columns =
+                self.parse_comma_separated(|parser| parser.parse_column_def_inner(true))?;
+            self.expect_token(&Token::RParen)?;
+            Ok(HiveDistributionStyle::PARTITIONED { columns })
+        } else {
+            Ok(HiveDistributionStyle::NONE)
+        }
+    }
+
+    /// Parse Hive formats.
+    pub fn parse_hive_formats(&mut self) -> Result<Option<HiveFormat>, ParserError> {
+        let mut hive_format: Option<HiveFormat> = None;
+        loop {
+            match self.parse_one_of_keywords(&[
+                Keyword::ROW,
+                Keyword::STORED,
+                Keyword::LOCATION,
+                Keyword::WITH,
+                Keyword::USING,
+            ]) {
+                Some(Keyword::ROW) => {
+                    hive_format
+                        .get_or_insert_with(HiveFormat::default)
+                        .row_format = Some(self.parse_row_format()?);
+                }
+                Some(Keyword::STORED) => {
+                    self.expect_keyword_is(Keyword::AS)?;
+                    if self.parse_keyword(Keyword::INPUTFORMAT) {
+                        let input_format = self.parse_expr()?;
+                        self.expect_keyword_is(Keyword::OUTPUTFORMAT)?;
+                        let output_format = self.parse_expr()?;
+                        hive_format.get_or_insert_with(HiveFormat::default).storage =
+                            Some(HiveIOFormat::IOF {
+                                input_format,
+                                output_format,
+                            });
+                    } else {
+                        let format = self.parse_file_format()?;
+                        hive_format.get_or_insert_with(HiveFormat::default).storage =
+                            Some(HiveIOFormat::FileFormat { format });
+                    }
+                }
+                Some(Keyword::LOCATION) => {
+                    hive_format.get_or_insert_with(HiveFormat::default).location =
+                        Some(self.parse_literal_string()?);
+                }
+                Some(Keyword::WITH) => {
+                    self.prev_token();
+                    let properties = self
+                        .parse_options_with_keywords(&[Keyword::WITH, Keyword::SERDEPROPERTIES])?;
+                    if !properties.is_empty() {
+                        hive_format
+                            .get_or_insert_with(HiveFormat::default)
+                            .serde_properties = Some(properties);
+                    } else {
+                        break;
+                    }
+                }
+                Some(Keyword::USING) if self.dialect.supports_create_table_using() => {
+                    let format = self.parse_identifier()?;
+                    hive_format.get_or_insert_with(HiveFormat::default).storage =
+                        Some(HiveIOFormat::Using { format });
+                }
+                Some(Keyword::USING) => {
+                    // USING is not a table format keyword in this dialect; put it back
+                    self.prev_token();
+                    break;
+                }
+                None => break,
+                _ => break,
+            }
+        }
+
+        Ok(hive_format)
+    }
+
+    /// Parse Hive row format.
+    pub fn parse_row_format(&mut self) -> Result<HiveRowFormat, ParserError> {
+        self.expect_keyword_is(Keyword::FORMAT)?;
+        match self.parse_one_of_keywords(&[Keyword::SERDE, Keyword::DELIMITED]) {
+            Some(Keyword::SERDE) => {
+                let class = self.parse_literal_string()?;
+                Ok(HiveRowFormat::SERDE { class })
+            }
+            _ => {
+                let mut row_delimiters = vec![];
+
+                loop {
+                    match self.parse_one_of_keywords(&[
+                        Keyword::FIELDS,
+                        Keyword::COLLECTION,
+                        Keyword::MAP,
+                        Keyword::LINES,
+                        Keyword::NULL,
+                    ]) {
+                        Some(Keyword::FIELDS)
+                            if self.parse_keywords(&[Keyword::TERMINATED, Keyword::BY]) =>
+                        {
+                            row_delimiters.push(HiveRowDelimiter {
+                                delimiter: HiveDelimiter::FieldsTerminatedBy,
+                                char: self.parse_identifier()?,
+                            });
+
+                            if self.parse_keywords(&[Keyword::ESCAPED, Keyword::BY]) {
+                                row_delimiters.push(HiveRowDelimiter {
+                                    delimiter: HiveDelimiter::FieldsEscapedBy,
+                                    char: self.parse_identifier()?,
+                                });
+                            }
+                        }
+                        Some(Keyword::COLLECTION)
+                            if self.parse_keywords(&[
+                                Keyword::ITEMS,
+                                Keyword::TERMINATED,
+                                Keyword::BY,
+                            ]) =>
+                        {
+                            row_delimiters.push(HiveRowDelimiter {
+                                delimiter: HiveDelimiter::CollectionItemsTerminatedBy,
+                                char: self.parse_identifier()?,
+                            });
+                        }
+                        Some(Keyword::MAP)
+                            if self.parse_keywords(&[
+                                Keyword::KEYS,
+                                Keyword::TERMINATED,
+                                Keyword::BY,
+                            ]) =>
+                        {
+                            row_delimiters.push(HiveRowDelimiter {
+                                delimiter: HiveDelimiter::MapKeysTerminatedBy,
+                                char: self.parse_identifier()?,
+                            });
+                        }
+                        Some(Keyword::LINES)
+                            if self.parse_keywords(&[Keyword::TERMINATED, Keyword::BY]) =>
+                        {
+                            row_delimiters.push(HiveRowDelimiter {
+                                delimiter: HiveDelimiter::LinesTerminatedBy,
+                                char: self.parse_identifier()?,
+                            });
+                        }
+                        Some(Keyword::NULL)
+                            if self.parse_keywords(&[Keyword::DEFINED, Keyword::AS]) =>
+                        {
+                            row_delimiters.push(HiveRowDelimiter {
+                                delimiter: HiveDelimiter::NullDefinedAs,
+                                char: self.parse_identifier()?,
+                            });
+                        }
+                        Some(Keyword::NULL) => break,
+                        _ => {
+                            break;
+                        }
+                    }
+                }
+
+                Ok(HiveRowFormat::DELIMITED {
+                    delimiters: row_delimiters,
+                })
+            }
+        }
+    }
+
+    /// Parse optional `CLUSTERED BY` clause for Hive/Generic dialects.
+    pub fn parse_optional_clustered_by(&mut self) -> Result<Option<ClusteredBy>, ParserError> {
+        let clustered_by = if self.dialect.supports_create_table_clustered_by()
+            && self.parse_keywords(&[Keyword::CLUSTERED, Keyword::BY])
+        {
+            let columns = self.parse_parenthesized_column_list(Mandatory, false)?;
+
+            let sorted_by = if self.parse_keywords(&[Keyword::SORTED, Keyword::BY]) {
+                self.expect_token(&Token::LParen)?;
+                let sorted_by_columns = self.parse_comma_separated(|p| p.parse_order_by_expr())?;
+                self.expect_token(&Token::RParen)?;
+                Some(sorted_by_columns)
+            } else {
+                None
+            };
+
+            self.expect_keyword_is(Keyword::INTO)?;
+            let num_buckets = self.parse_number_value()?.value;
+            self.expect_keyword_is(Keyword::BUCKETS)?;
+            Some(ClusteredBy {
+                columns,
+                sorted_by,
+                num_buckets,
+            })
+        } else {
+            None
+        };
+        Ok(clustered_by)
+    }
+
+    /// Parse optional Hive `INPUTFORMAT ... SERDE ...` clause used by LOAD DATA.
+    pub fn parse_load_data_table_format(
+        &mut self,
+    ) -> Result<Option<HiveLoadDataFormat>, ParserError> {
+        if self.parse_keyword(Keyword::INPUTFORMAT) {
+            let input_format = self.parse_expr()?;
+            self.expect_keyword_is(Keyword::SERDE)?;
+            let serde = self.parse_expr()?;
+            Ok(Some(HiveLoadDataFormat {
+                input_format,
+                serde,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 }
