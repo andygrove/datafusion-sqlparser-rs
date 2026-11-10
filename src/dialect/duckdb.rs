@@ -15,7 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use crate::ast::{AttachDuckDBDatabaseOption, Statement};
 use crate::dialect::Dialect;
+use crate::keywords::Keyword;
+use crate::parser::{Parser, ParserError};
+use crate::tokenizer::Token;
 
 /// A [`Dialect`] for [DuckDB](https://duckdb.org/)
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -24,6 +28,13 @@ pub struct DuckDbDialect;
 
 // In most cases the redshift dialect is identical to [`PostgresSqlDialect`].
 impl Dialect for DuckDbDialect {
+    fn parse_statement(&self, parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
+        if parser.parse_keyword(Keyword::ATTACH) {
+            return Some(parser.parse_attach_duckdb_database());
+        }
+        None
+    }
+
     fn supports_cte_materialization(&self) -> bool {
         true
     }
@@ -174,5 +185,65 @@ impl Dialect for DuckDbDialect {
     /// See <https://duckdb.org/docs/stable/sql/statements/alter_table>
     fn supports_add_column_if_not_exists(&self) -> bool {
         true
+    }
+}
+
+impl Parser<'_> {
+    /// Parse options for `ATTACH DUCKDB DATABASE` statement.
+    pub fn parse_attach_duckdb_database_options(
+        &mut self,
+    ) -> Result<Vec<AttachDuckDBDatabaseOption>, ParserError> {
+        if !self.consume_token(&Token::LParen) {
+            return Ok(vec![]);
+        }
+
+        let mut options = vec![];
+        loop {
+            if self.parse_keyword(Keyword::READ_ONLY) {
+                let boolean = if self.parse_keyword(Keyword::TRUE) {
+                    Some(true)
+                } else if self.parse_keyword(Keyword::FALSE) {
+                    Some(false)
+                } else {
+                    None
+                };
+                options.push(AttachDuckDBDatabaseOption::ReadOnly(boolean));
+            } else if self.parse_keyword(Keyword::TYPE) {
+                let ident = self.parse_identifier()?;
+                options.push(AttachDuckDBDatabaseOption::Type(ident));
+            } else {
+                return self
+                    .expected_ref("expected one of: ), READ_ONLY, TYPE", self.peek_token_ref());
+            };
+
+            if self.consume_token(&Token::RParen) {
+                return Ok(options);
+            } else if self.consume_token(&Token::Comma) {
+                continue;
+            } else {
+                return self.expected_ref("expected one of: ')', ','", self.peek_token_ref());
+            }
+        }
+    }
+
+    /// Parse `ATTACH DUCKDB DATABASE` statement.
+    pub fn parse_attach_duckdb_database(&mut self) -> Result<Statement, ParserError> {
+        let database = self.parse_keyword(Keyword::DATABASE);
+        let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+        let database_path = self.parse_identifier()?;
+        let database_alias = if self.parse_keyword(Keyword::AS) {
+            Some(self.parse_identifier()?)
+        } else {
+            None
+        };
+
+        let attach_options = self.parse_attach_duckdb_database_options()?;
+        Ok(Statement::AttachDuckDBDatabase {
+            if_not_exists,
+            database,
+            database_path,
+            database_alias,
+            attach_options,
+        })
     }
 }
