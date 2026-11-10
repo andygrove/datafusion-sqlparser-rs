@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use crate::ast::{CreateFunction, Statement};
 use crate::dialect::Dialect;
 use crate::keywords::{Keyword, RESERVED_FOR_TABLE_FACTOR};
-use crate::parser::Parser;
+use crate::parser::{Parser, ParserError};
 
 /// A [`Dialect`] for [Hive](https://hive.apache.org/).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -25,6 +26,20 @@ use crate::parser::Parser;
 pub struct HiveDialect {}
 
 impl Dialect for HiveDialect {
+    fn parse_create_function(
+        &self,
+        parser: &mut Parser,
+        _or_alter: bool,
+        or_replace: bool,
+        temporary: bool,
+    ) -> Option<Result<Statement, ParserError>> {
+        Some(
+            parser
+                .parse_hive_create_function(or_replace, temporary)
+                .map(Into::into),
+        )
+    }
+
     fn is_delimited_identifier_start(&self, ch: char) -> bool {
         (ch == '"') || (ch == '`')
     }
@@ -112,5 +127,48 @@ impl Dialect for HiveDialect {
     /// See <https://hive.apache.org/docs/latest/language/languagemanual-types/>
     fn supports_map_literal_with_angle_brackets(&self) -> bool {
         true
+    }
+}
+
+impl Parser<'_> {
+    /// Parse `CREATE FUNCTION` for [Hive]
+    ///
+    /// [Hive]: https://cwiki.apache.org/confluence/display/hive/languagemanual+ddl#LanguageManualDDL-Create/Drop/ReloadFunction
+    fn parse_hive_create_function(
+        &mut self,
+        or_replace: bool,
+        temporary: bool,
+    ) -> Result<CreateFunction, ParserError> {
+        let name = self.parse_object_name(false)?;
+        self.expect_keyword_is(Keyword::AS)?;
+
+        let body = self.parse_create_function_body_string()?;
+        let using = self.parse_optional_create_function_using()?;
+
+        Ok(CreateFunction {
+            or_alter: false,
+            or_replace,
+            temporary,
+            name,
+            function_body: Some(body),
+            using,
+            if_not_exists: false,
+            args: None,
+            return_type: None,
+            behavior: None,
+            called_on_null: None,
+            parallel: None,
+            security: None,
+            leakproof: None,
+            window: false,
+            cost: None,
+            rows: None,
+            support: None,
+            set_params: vec![],
+            language: None,
+            determinism_specifier: None,
+            options: None,
+            remote_connection: None,
+        })
     }
 }

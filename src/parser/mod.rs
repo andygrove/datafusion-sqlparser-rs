@@ -6016,10 +6016,14 @@ impl<'a> Parser<'a> {
         or_replace: bool,
         temporary: bool,
     ) -> Result<Statement, ParserError> {
-        if dialect_of!(self is HiveDialect) {
-            self.parse_hive_create_function(or_replace, temporary)
-                .map(Into::into)
-        } else if dialect_of!(self is PostgreSqlDialect | GenericDialect) {
+        if let Some(statement) = self
+            .dialect
+            .parse_create_function(self, or_alter, or_replace, temporary)
+        {
+            return statement;
+        }
+
+        if dialect_of!(self is PostgreSqlDialect | GenericDialect) {
             self.parse_postgres_create_function(or_replace, temporary)
                 .map(Into::into)
         } else if dialect_of!(self is DuckDbDialect) {
@@ -6207,47 +6211,6 @@ impl<'a> Parser<'a> {
             function_body: body.function_body,
             if_not_exists: false,
             using: None,
-            determinism_specifier: None,
-            options: None,
-            remote_connection: None,
-        })
-    }
-
-    /// Parse `CREATE FUNCTION` for [Hive]
-    ///
-    /// [Hive]: https://cwiki.apache.org/confluence/display/hive/languagemanual+ddl#LanguageManualDDL-Create/Drop/ReloadFunction
-    fn parse_hive_create_function(
-        &mut self,
-        or_replace: bool,
-        temporary: bool,
-    ) -> Result<CreateFunction, ParserError> {
-        let name = self.parse_object_name(false)?;
-        self.expect_keyword_is(Keyword::AS)?;
-
-        let body = self.parse_create_function_body_string()?;
-        let using = self.parse_optional_create_function_using()?;
-
-        Ok(CreateFunction {
-            or_alter: false,
-            or_replace,
-            temporary,
-            name,
-            function_body: Some(body),
-            using,
-            if_not_exists: false,
-            args: None,
-            return_type: None,
-            behavior: None,
-            called_on_null: None,
-            parallel: None,
-            security: None,
-            leakproof: None,
-            window: false,
-            cost: None,
-            rows: None,
-            support: None,
-            set_params: vec![],
-            language: None,
             determinism_specifier: None,
             options: None,
             remote_connection: None,
@@ -13450,7 +13413,9 @@ impl<'a> Parser<'a> {
 
     /// Parse the body of a `CREATE FUNCTION` specified as a string.
     /// e.g. `CREATE FUNCTION ... AS $$ body $$`.
-    fn parse_create_function_body_string(&mut self) -> Result<CreateFunctionBody, ParserError> {
+    pub(crate) fn parse_create_function_body_string(
+        &mut self,
+    ) -> Result<CreateFunctionBody, ParserError> {
         let parse_string_expr = |parser: &mut Parser| -> Result<Expr, ParserError> {
             let peek_token = parser.peek_token();
             let span = peek_token.span;
