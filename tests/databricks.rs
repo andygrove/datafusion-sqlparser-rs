@@ -294,7 +294,7 @@ mod shape {
             select.projection[0].kind,
             SelectItemKind::Expr {
                 expr: Expr {
-                    kind: ExprKind::Literal(Literal::Number("1e5")),
+                    kind: ExprKind::Literal(Literal::Number(std::borrow::Cow::Borrowed("1e5"))),
                     ..
                 },
                 alias: None

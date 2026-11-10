@@ -76,7 +76,7 @@ fn mysql_double_quotes_delimit_strings() {
     assert_eq!(
         my("\"a\""),
         ExprKind::Literal(Literal::String(StringLiteral {
-            text: "a",
+            text: "a".into(),
             quote: '"',
             backslash_escapes: true,
             national: false,
@@ -247,7 +247,7 @@ fn redshift_parses_select_top() {
     assert_eq!(
         select.modifiers,
         BuiltinSelect {
-            top: Some("10"),
+            top: Some("10".into()),
             ..BuiltinSelect::default()
         }
     );

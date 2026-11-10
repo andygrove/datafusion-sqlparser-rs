@@ -22,6 +22,7 @@ use crate::PResult;
 use crate::dialect::Dialect;
 use crate::lexer::{Token, TokenKind};
 use crate::parser::Parser;
+use std::borrow::Cow;
 
 fn is_name_token(token: Token<'_>) -> bool {
     matches!(token.kind, TokenKind::Word | TokenKind::QuotedIdent)
@@ -42,7 +43,10 @@ fn parse_privilege<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Privilege<'
     } else {
         Vec::new()
     };
-    Ok(Privilege { words, columns })
+    Ok(Privilege {
+        words: words.into_iter().map(Cow::Borrowed).collect(),
+        columns,
+    })
 }
 
 pub fn parse_privileges<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Privileges<'a>> {
@@ -89,7 +93,10 @@ pub fn parse_grant_name<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<GrantN
 pub fn parse_grant_objects<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<GrantObjects<'a>> {
     let kind = parse_kind_words(p, &["TO", "FROM"]);
     let names = p.parse_comma_separated(D::parse_grant_name)?;
-    Ok(GrantObjects { kind, names })
+    Ok(GrantObjects {
+        kind: kind.into_iter().map(Cow::Borrowed).collect(),
+        names,
+    })
 }
 
 const GRANTEE_STOPS: [&str; 7] = [
@@ -120,7 +127,7 @@ pub fn parse_grantee<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Grantee<'
     }
     let name = parse_object_name(p)?;
     Ok(Grantee {
-        kind,
+        kind: kind.into_iter().map(Cow::Borrowed).collect(),
         name,
         host: None,
     })
@@ -380,7 +387,7 @@ pub fn parse_routine_arg<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Routi
         None
     };
     Ok(RoutineArg {
-        mode,
+        mode: mode.map(Cow::Borrowed),
         name,
         data_type,
         default,
@@ -429,5 +436,5 @@ pub fn eat_drop_object_type<'a, D: Dialect>(
     kinds
         .iter()
         .find(|kind| p.eat_keyword(kind))
-        .map(|kind| ObjectType::Named(kind))
+        .map(|kind| ObjectType::Named((*kind).into()))
 }

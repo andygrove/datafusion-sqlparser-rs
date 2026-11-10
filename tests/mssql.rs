@@ -600,9 +600,9 @@ mod shape {
         }
     }
 
-    fn ident_text<'a>(expr: &Expr<'a, Builtin>) -> &'a str {
+    fn ident_text<'e>(expr: &'e Expr<'_, Builtin>) -> &'e str {
         match &expr.kind {
-            ExprKind::Ident(ident) => ident.text,
+            ExprKind::Ident(ident) => ident.text.as_ref(),
             other => panic!("not an identifier: {other:?}"),
         }
     }
@@ -675,7 +675,7 @@ mod shape {
         assert_eq!(hinted.hints[0].to_string(), "NOLOCK");
         assert!(matches!(
             from.joins[0].kind,
-            JoinKind::Custom("CROSS APPLY")
+            JoinKind::Custom(std::borrow::Cow::Borrowed("CROSS APPLY"))
         ));
     }
 

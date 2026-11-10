@@ -141,5 +141,8 @@ pub fn parse_sample_seed<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Optio
     p.expect_op("(")?;
     let value = parse_number(p)?;
     p.expect_op(")")?;
-    Ok(Some(SampleSeed { repeatable, value }))
+    Ok(Some(SampleSeed {
+        repeatable,
+        value: value.into(),
+    }))
 }

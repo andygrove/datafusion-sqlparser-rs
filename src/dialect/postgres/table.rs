@@ -17,6 +17,7 @@
 
 //! PostgreSQL's table clauses: `PARTITION OF`, `LIKE`, `INHERITS` and more.
 
+use std::borrow::Cow;
 use std::fmt;
 
 use crate::PResult;
@@ -39,7 +40,6 @@ type Exp<'a> = Expr<'a, Builtin>;
 /// A column of `CREATE TABLE ... PARTITION OF`, which gives no type.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -55,7 +55,6 @@ pub struct PartitionColumn<'a> {
 /// `LIKE source [INCLUDING | EXCLUDING option]...`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct TableLike<'a> {
     #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
@@ -69,7 +68,6 @@ pub struct TableLike<'a> {
 /// `CREATE TABLE` with clauses the core does not have.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -92,7 +90,7 @@ pub struct PostgresCreateTable<'a> {
     pub partition_by: Option<Box<Exp<'a>>>,
     pub with: IndexStorage<'a, Builtin>,
     /// `DROP`, `DELETE ROWS` or `PRESERVE ROWS`.
-    pub on_commit: Option<&'a str>,
+    pub on_commit: Option<Cow<'a, str>>,
     pub server: Option<Ident<'a>>,
     pub options: Vec<crate::ast::GenericOption<'a>>,
 }
@@ -273,7 +271,7 @@ fn parse_table<'a, D: Dialect<Ext = Builtin>>(
         bound,
         partition_by,
         with,
-        on_commit,
+        on_commit: on_commit.map(Cow::Borrowed),
         server,
         options,
     })
@@ -360,7 +358,10 @@ pub fn parse_partition_bound<'a, D: Dialect<Ext = Builtin>>(
     p.expect_keyword("REMAINDER")?;
     let remainder = grammar::parse_number_text(p)?;
     p.expect_op(")")?;
-    Ok(PartitionBound::Hash { modulus, remainder })
+    Ok(PartitionBound::Hash {
+        modulus: modulus.into(),
+        remainder: remainder.into(),
+    })
 }
 
 fn parse_range_bounds<'a, D: Dialect<Ext = Builtin>>(
@@ -472,7 +473,7 @@ fn parse_exclude_element<'a, D: Dialect<Ext = Builtin>>(
         ExcludeOperator::Qualified(operator)
     } else {
         let token = p.expect_kind(TokenKind::Op, "an operator")?;
-        ExcludeOperator::Plain(token.text)
+        ExcludeOperator::Plain(token.text.into())
     };
     Ok(ExcludeElement { column, operator })
 }
@@ -495,7 +496,7 @@ pub fn parse_alter_relation<'a, D: Dialect<Ext = Builtin>>(
     let name = grammar::parse_object_name(p)?;
     let operations = p.parse_comma_separated(D::parse_alter_table_op)?;
     Ok(PostgresStatement::AlterRelation {
-        keyword,
+        keyword: keyword.into(),
         alter: Box::new(AlterTable {
             if_exists,
             only,
@@ -524,13 +525,16 @@ pub fn parse_alter_table_op_extra<'a, D: Dialect<Ext = Builtin>>(
         let mode = ["CONCURRENTLY", "FINALIZE"]
             .into_iter()
             .find(|word| p.eat_keyword(word));
-        return Ok(Some(AlterTableOp::DetachPartition { name, mode }));
+        return Ok(Some(AlterTableOp::DetachPartition {
+            name,
+            mode: mode.map(Cow::Borrowed),
+        }));
     }
     if p.at_keyword("INHERIT") {
         p.advance();
         let name = grammar::parse_object_name(p)?;
         return Ok(Some(AlterTableOp::PhraseObject {
-            phrase: "INHERIT",
+            phrase: "INHERIT".into(),
             name,
         }));
     }
@@ -539,7 +543,7 @@ pub fn parse_alter_table_op_extra<'a, D: Dialect<Ext = Builtin>>(
         p.advance();
         let name = grammar::parse_object_name(p)?;
         return Ok(Some(AlterTableOp::PhraseObject {
-            phrase: "NO INHERIT",
+            phrase: "NO INHERIT".into(),
             name,
         }));
     }
@@ -566,7 +570,7 @@ pub fn parse_alter_table_op_extra<'a, D: Dialect<Ext = Builtin>>(
         p.advance();
         let name = p.parse_ident()?;
         return Ok(Some(AlterTableOp::PhraseName {
-            phrase: "SET SCHEMA",
+            phrase: "SET SCHEMA".into(),
             name,
         }));
     }
@@ -707,7 +711,7 @@ impl fmt::Display for PostgresCreateTable<'_> {
             f.write_str(" WITH ")?;
             write_storage(f, &self.with)?;
         }
-        if let Some(on_commit) = self.on_commit {
+        if let Some(ref on_commit) = self.on_commit {
             write!(f, " ON COMMIT {on_commit}")?;
         }
         if let Some(server) = &self.server {

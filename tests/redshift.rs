@@ -62,7 +62,7 @@ fn table_attributes() {
         panic!("expected a Redshift CREATE TABLE");
     };
     assert_eq!(create.backup, Some(false));
-    assert_eq!(create.diststyle, Some("EVEN"));
+    assert_eq!(create.diststyle.as_deref(), Some("EVEN"));
 
     assert!(parse_sql::<Postgres>("CREATE TABLE t (a INT) DISTSTYLE EVEN").is_err());
     assert!(parse_sql::<Core>("CREATE TABLE t (a INT) BACKUP YES").is_err());

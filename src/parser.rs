@@ -21,6 +21,7 @@
 //! always invoked through the [`Dialect`] trait so that a dialect's override
 //! applies wherever the rule is used.
 
+use std::borrow::Cow;
 use std::marker::PhantomData;
 
 use crate::ast::{
@@ -316,12 +317,12 @@ impl<'a, D: Dialect> Parser<'a, D> {
         let token = self.advance();
         Ok(match token.kind {
             TokenKind::QuotedIdent => Ident {
-                text: &token.text[1..token.text.len() - 1],
+                text: Cow::Borrowed(&token.text[1..token.text.len() - 1]),
                 quote: token.text.chars().next(),
                 span: token.span,
             },
             _ => Ident {
-                text: token.text,
+                text: token.text.into(),
                 quote: None,
                 span: token.span,
             },

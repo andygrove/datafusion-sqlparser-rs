@@ -21,22 +21,34 @@ use super::*;
 use crate::ast::ExprKind;
 use crate::ast::SelectItemKind;
 use crate::ast::Span;
+use std::borrow::Cow;
 
 pub fn parse_query<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Query<'a, D::Ext>> {
     let with = if p.eat_keyword("WITH") {
-        p.parse_comma_separated(D::parse_cte)?
+        let recursive = D::eat_with_recursive(p);
+        let ctes = p.parse_comma_separated(D::parse_cte)?;
+        Some(Box::new(With { recursive, ctes }))
     } else {
-        Vec::new()
+        None
     };
     parse_query_after_with(p, with)
+}
+
+/// Consumes `RECURSIVE` after `WITH`. It is a CTE's name instead when `AS` or
+/// a column list follows it.
+pub fn eat_with_recursive<'a, D: Dialect>(p: &mut Parser<'a, D>) -> bool {
+    let next = p.peek_nth(1);
+    let names_a_cte =
+        matches!(next.kind, TokenKind::Word | TokenKind::QuotedIdent) && !next.is_word("AS");
+    names_a_cte && p.eat_keyword("RECURSIVE")
 }
 
 /// Parses the rest of a query once its `WITH` clause has been read.
 pub fn parse_query_after_with<'a, D: Dialect>(
     p: &mut Parser<'a, D>,
-    with: Vec<Cte<'a, D::Ext>>,
+    with: Option<Box<With<'a, D::Ext>>>,
 ) -> PResult<Query<'a, D::Ext>> {
-    let statement = if with.is_empty() {
+    let statement = if with.is_none() {
         None
     } else {
         D::parse_statement_after_with(p)?
@@ -103,7 +115,7 @@ pub fn parse_query_after_with<'a, D: Dialect>(
 
 /// Wraps a statement that follows a `WITH` clause as a query.
 fn statement_query<'a, D: Dialect>(
-    with: Vec<Cte<'a, D::Ext>>,
+    with: Option<Box<With<'a, D::Ext>>>,
     statement: Statement<'a, D::Ext>,
 ) -> Query<'a, D::Ext> {
     Query {
@@ -142,7 +154,7 @@ pub fn parse_table_or_query<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Qu
     p.advance();
     let name = parse_object_name(p)?;
     Ok(Query {
-        with: Vec::new(),
+        with: None,
         body: SetExpr::Table(name),
         order_by: Vec::new(),
         distribution: None,
@@ -170,7 +182,7 @@ pub fn parse_select_into_table<'a, D: Dialect>(
     let table_keyword = p.eat_keyword("TABLE");
     let name = parse_object_name(p)?;
     Ok(Some(Box::new(SelectInto {
-        modifier,
+        modifier: modifier.map(Cow::Borrowed),
         table_keyword,
         targets: vec![name_expr(name)],
     })))
@@ -196,7 +208,7 @@ fn parse_into_target<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Expr<'a, 
     let token = p.peek();
     if token.kind == TokenKind::Placeholder {
         p.advance();
-        return Ok(ExprKind::Placeholder(token.text).into());
+        return Ok(ExprKind::Placeholder(token.text.into()).into());
     }
     Ok(name_expr(parse_object_name(p)?))
 }
@@ -1064,7 +1076,7 @@ pub fn parse_join_kind<'a, D: Dialect>(
         };
         // `FULL OUTER JOIN` renders as `FULL JOIN`, as in the original.
         let outer = p.eat_keyword("OUTER");
-        (kind, outer && kind != JoinKind::Full)
+        (kind.clone(), outer && kind != JoinKind::Full)
     };
     p.expect_keyword("JOIN")?;
     Ok(Some((kind, spelled_out)))

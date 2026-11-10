@@ -867,7 +867,7 @@ mod shape {
                             ..
                         },
                     ..
-                } => (s.text, s.quote, s.triple, s.prefix),
+                } => (s.text.as_ref(), s.quote, s.triple, s.prefix),
                 other => panic!("{other:?}"),
             })
             .collect();
@@ -941,7 +941,7 @@ mod shape {
         let Some(AngleArguments::Fields(fields)) = ty.angle.as_deref() else {
             panic!("{ty:?}");
         };
-        assert_eq!(fields[0].name.unwrap().text, "x");
+        assert_eq!(fields[0].name.as_ref().unwrap().text, "x");
         assert!(fields[1].name.is_none());
         assert_eq!(literal.values.len(), 2);
     }
@@ -955,7 +955,7 @@ mod shape {
         let SetExpr::Select(select) = &query.body else {
             panic!();
         };
-        assert_eq!(select.modifiers.bigquery_as, Some("VALUE"));
+        assert_eq!(select.modifiers.bigquery_as.as_deref(), Some("VALUE"));
     }
 
     #[test]

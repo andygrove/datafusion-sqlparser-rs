@@ -111,7 +111,7 @@ fn full_select_produces_every_clause() {
     .unwrap();
 
     let expected: Query<'_, Builtin> = Query {
-        with: vec![],
+        with: None,
         body: SetExpr::Select(Box::new(Select {
             modifiers: BuiltinSelect::default(),
             quantifier: SetQuantifier::None,

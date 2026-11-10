@@ -17,6 +17,7 @@
 
 //! Snowflake.
 
+use std::borrow::Cow;
 use std::fmt::{self, Display as _};
 
 use crate::PResult;
@@ -55,7 +56,6 @@ pub struct Snowflake;
 /// Expressions only Snowflake has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -75,7 +75,6 @@ pub enum SnowflakeExpr<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -93,7 +92,6 @@ pub enum PathElement<'a> {
 /// Statements only Snowflake has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -104,7 +102,7 @@ pub enum SnowflakeStatement<'a> {
     AlterUser(Box<AlterUser<'a>>),
     /// `USE [kind] name`
     Use {
-        kind: Option<&'a str>,
+        kind: Option<Cow<'a, str>>,
         name: ObjectName<'a>,
     },
     UseSecondaryRoles(SecondaryRoles<'a>),
@@ -133,7 +131,7 @@ pub enum SnowflakeStatement<'a> {
         if_exists: bool,
         #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
         name: ObjectName<'a>,
-        action: &'a str,
+        action: Cow<'a, str>,
         subpath: Option<StringLiteral<'a>>,
     },
     Block(Box<Block<'a>>),
@@ -156,7 +154,6 @@ pub enum SnowflakeStatement<'a> {
 /// A `KEY=value` option.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct KeyValue<'a> {
     pub key: Ident<'a>,
@@ -165,11 +162,10 @@ pub struct KeyValue<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum OptionValue<'a> {
     /// An unquoted word such as `CSV` or `true`, as written.
-    Word(&'a str),
+    Word(Cow<'a, str>),
     Literal(Literal<'a>),
     /// `('a', 'b')`
     List(Vec<StringLiteral<'a>>),
@@ -179,7 +175,6 @@ pub enum OptionValue<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum CopyLocation<'a> {
     Name(#[cfg_attr(feature = "visitor", visit(with = "visit_relation"))] ObjectName<'a>),
@@ -189,7 +184,6 @@ pub enum CopyLocation<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -202,7 +196,6 @@ pub enum CopySource<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -215,7 +208,6 @@ pub enum CopyClause<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -234,14 +226,13 @@ pub struct CopyInto<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct CreateObject<'a> {
     pub or_replace: bool,
     /// `TEMPORARY` or `VOLATILE`.
-    pub lifetime: Option<&'a str>,
+    pub lifetime: Option<Cow<'a, str>>,
     /// `STAGE` or `FILE FORMAT`.
-    pub kind: &'a str,
+    pub kind: Cow<'a, str>,
     pub if_not_exists: bool,
     pub name: ObjectName<'a>,
     pub options: Vec<KeyValue<'a>>,
@@ -249,7 +240,6 @@ pub struct CreateObject<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -268,7 +258,6 @@ pub struct MultiTableInsert<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -281,7 +270,6 @@ pub struct InsertWhen<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -296,7 +284,6 @@ pub struct InsertTarget<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum SecondaryRoles<'a> {
     All,
@@ -491,7 +478,7 @@ fn parse_identifier_call<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Ident
     let end = p.advance().span.end;
     let span = Span { start, end };
     Ok(Ident {
-        text: p.text(span),
+        text: p.text(span).into(),
         quote: None,
         span,
     })
@@ -509,7 +496,7 @@ pub fn parse_object_name_part<'a, D: Dialect<Ext = Builtin>>(
 ) -> PResult<Ident<'a>> {
     if before.len() == 1 && p.at_op(".") {
         return Ok(Ident {
-            text: "",
+            text: "".into(),
             quote: None,
             span: Span::default(),
         });
@@ -527,7 +514,7 @@ fn colon_key(token: Token<'_>) -> Option<Ident<'_>> {
     let is_name =
         token.kind == TokenKind::Placeholder && !key.starts_with(|c: char| c.is_ascii_digit());
     is_name.then_some(Ident {
-        text: key,
+        text: key.into(),
         quote: None,
         span: Span {
             start: token.span.start + 1,
@@ -620,7 +607,7 @@ fn parse_use_part<'a, D: Dialect<Ext = Builtin>>(p: &mut Parser<'a, D>) -> PResu
     if token.kind == TokenKind::String {
         p.advance();
         return Ok(Ident {
-            text: &token.text[1..token.text.len() - 1],
+            text: Cow::Borrowed(&token.text[1..token.text.len() - 1]),
             quote: Some('\''),
             span: token.span,
         });
@@ -663,7 +650,10 @@ fn parse_use<'a, D: Dialect<Ext = Builtin>>(
         .into_iter()
         .find(|kind| p.eat_keyword(kind));
     let name = parse_use_name(p)?;
-    Ok(SnowflakeStatement::Use { kind, name })
+    Ok(SnowflakeStatement::Use {
+        kind: kind.map(Cow::Borrowed),
+        name,
+    })
 }
 
 fn parse_session_option<'a, D: Dialect<Ext = Builtin>>(
@@ -847,11 +837,11 @@ fn parse_option_value<'a, D: Dialect<Ext = Builtin>>(
         }
         TokenKind::Number => {
             p.advance();
-            Ok(OptionValue::Literal(Literal::Number(token.text)))
+            Ok(OptionValue::Literal(Literal::Number(token.text.into())))
         }
         TokenKind::Word => {
             p.advance();
-            Ok(OptionValue::Word(token.text))
+            Ok(OptionValue::Word(token.text.into()))
         }
         TokenKind::Op if token.text == "(" => {
             p.advance();
@@ -1038,8 +1028,8 @@ fn parse_create_object<'a, D: Dialect<Ext = Builtin>>(
     let options = parse_key_values(p)?;
     Ok(SnowflakeStatement::CreateObject(Box::new(CreateObject {
         or_replace,
-        lifetime,
-        kind,
+        lifetime: lifetime.map(Cow::Borrowed),
+        kind: kind.into(),
         if_not_exists,
         name,
         options,
@@ -1291,7 +1281,10 @@ pub fn parse_select_head<'a, D: Dialect<Ext = Builtin>>(
         p.advance();
         p.advance();
         Some(Box::new(MsSqlTop {
-            quantity: Expr::new(ExprKind::Literal(Literal::Number(number.text)), number.span),
+            quantity: Expr::new(
+                ExprKind::Literal(Literal::Number(number.text.into())),
+                number.span,
+            ),
             parenthesized: false,
             percent: false,
             with_ties: false,
@@ -1334,7 +1327,7 @@ pub fn parse_sample_clause<'a, D: Dialect>(
         .into_iter()
         .find(|method| p.eat_keyword(method));
     let mut clause = grammar::parse_sample_clause(p, long_form)?;
-    clause.method = method;
+    clause.method = method.map(Cow::Borrowed);
     clause.seed = grammar::parse_sample_seed(p)?;
     Ok(clause)
 }
@@ -1565,17 +1558,17 @@ pub fn parse_alter_table_op<'a, D: Dialect<Ext = Builtin>>(
         p.advance();
         p.advance();
         p.expect_keyword("KEY")?;
-        return Ok(AlterTableOp::Phrase("DROP CLUSTERING KEY"));
+        return Ok(AlterTableOp::Phrase("DROP CLUSTERING KEY".into()));
     }
     if p.at_keyword("SUSPEND") && next.is_word("RECLUSTER") {
         p.advance();
         p.advance();
-        return Ok(AlterTableOp::Phrase("SUSPEND RECLUSTER"));
+        return Ok(AlterTableOp::Phrase("SUSPEND RECLUSTER".into()));
     }
     if p.at_keyword("RESUME") && next.is_word("RECLUSTER") {
         p.advance();
         p.advance();
-        return Ok(AlterTableOp::Phrase("RESUME RECLUSTER"));
+        return Ok(AlterTableOp::Phrase("RESUME RECLUSTER".into()));
     }
     if p.at_keyword("DROP") && next.is_word("PRIMARY") && p.peek_nth(2).is_word("KEY") {
         p.advance();
@@ -1583,9 +1576,9 @@ pub fn parse_alter_table_op<'a, D: Dialect<Ext = Builtin>>(
         p.advance();
         return Ok(AlterTableOp::Phrase(
             match grammar::parse_drop_behavior(p) {
-                Some(DropBehavior::Cascade) => "DROP PRIMARY KEY CASCADE",
-                Some(DropBehavior::Restrict) => "DROP PRIMARY KEY RESTRICT",
-                None => "DROP PRIMARY KEY",
+                Some(DropBehavior::Cascade) => "DROP PRIMARY KEY CASCADE".into(),
+                Some(DropBehavior::Restrict) => "DROP PRIMARY KEY RESTRICT".into(),
+                None => "DROP PRIMARY KEY".into(),
             },
         ));
     }
@@ -1648,7 +1641,7 @@ pub fn parse_name_part<'a, D: Dialect<Ext = Builtin>>(p: &mut Parser<'a, D>) -> 
     if token.kind == TokenKind::Placeholder && token.text.starts_with('$') {
         p.advance();
         return Ok(Ident {
-            text: token.text,
+            text: token.text.into(),
             quote: None,
             span: token.span,
         });
@@ -2018,7 +2011,7 @@ fn write_value(f: &mut fmt::Formatter<'_>, value: &OptionValue<'_>) -> fmt::Resu
                 if i > 0 {
                     f.write_str(", ")?;
                 }
-                write!(f, "{}", Literal::String(*string))?;
+                write!(f, "{}", string)?;
             }
             f.write_str(")")
         }
@@ -2040,7 +2033,7 @@ impl fmt::Display for CopyLocation<'_> {
         match self {
             CopyLocation::Name(name) => write!(f, "{name}"),
             CopyLocation::Stage(stage) => write!(f, "{stage}"),
-            CopyLocation::Url(url) => write!(f, "{}", Literal::String(*url)),
+            CopyLocation::Url(url) => write!(f, "{}", url),
         }
     }
 }
@@ -2085,7 +2078,7 @@ impl fmt::Display for CreateObject<'_> {
         if self.or_replace {
             f.write_str("OR REPLACE ")?;
         }
-        if let Some(lifetime) = self.lifetime {
+        if let Some(ref lifetime) = self.lifetime {
             write!(f, "{lifetime} ")?;
         }
         write!(f, "{} ", self.kind)?;
@@ -2211,7 +2204,7 @@ impl fmt::Display for SnowflakeStatement<'_> {
                 let if_exists = if *if_exists { "IF EXISTS " } else { "" };
                 write!(f, "ALTER {kind} TABLE {if_exists}{name} {action}")?;
                 match subpath {
-                    Some(path) => write!(f, " {}", Literal::String(*path)),
+                    Some(path) => write!(f, " {}", path),
                     None => Ok(()),
                 }
             }
@@ -2238,7 +2231,7 @@ impl fmt::Display for SnowflakeStatement<'_> {
                 stage,
                 options,
             } => {
-                write!(f, "PUT {} {stage}", Literal::String(*file))?;
+                write!(f, "PUT {} {stage}", file)?;
                 write_options(f, options)
             }
         }
@@ -2248,7 +2241,6 @@ impl fmt::Display for SnowflakeStatement<'_> {
 /// `key = value` in a user's properties.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -2262,7 +2254,6 @@ pub struct UserProperty<'a> {
 /// The value of a user property.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -2279,7 +2270,6 @@ pub enum UserValue<'a> {
 /// `CREATE [OR REPLACE] USER [IF NOT EXISTS] name [properties] [[WITH] TAG (...)]`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -2297,7 +2287,6 @@ pub struct CreateUser<'a> {
 /// What `ALTER USER` does.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -2318,20 +2307,20 @@ pub enum AlterUserAction<'a> {
     },
     EnrollMfa,
     AddMfaMethodOtp {
-        count: Option<&'a str>,
+        count: Option<Cow<'a, str>>,
     },
     ModifyMfaMethod {
-        method: &'a str,
+        method: Cow<'a, str>,
         comment: StringLiteral<'a>,
     },
-    RemoveMfaMethod(&'a str),
-    SetDefaultMfaMethod(&'a str),
+    RemoveMfaMethod(Cow<'a, str>),
+    SetDefaultMfaMethod(Cow<'a, str>),
     /// `AUTHENTICATION`, `PASSWORD` or `SESSION`.
     SetPolicy {
-        kind: &'a str,
+        kind: Cow<'a, str>,
         policy: Ident<'a>,
     },
-    UnsetPolicy(&'a str),
+    UnsetPolicy(Cow<'a, str>),
     SetTag(Vec<UserProperty<'a>>),
     UnsetTag(Vec<Ident<'a>>),
     SetProperties(Vec<UserProperty<'a>>),
@@ -2341,7 +2330,6 @@ pub enum AlterUserAction<'a> {
 /// `ALTER USER [IF EXISTS] name action`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -2505,7 +2493,9 @@ fn parse_alter_user_action<'a, D: Dialect<Ext = Builtin>>(
         } else {
             None
         };
-        return Ok(AlterUserAction::AddMfaMethodOtp { count });
+        return Ok(AlterUserAction::AddMfaMethodOtp {
+            count: count.map(Cow::Borrowed),
+        });
     }
     if p.at_keyword("MODIFY") && next.is_word("MFA") {
         p.advance();
@@ -2515,13 +2505,16 @@ fn parse_alter_user_action<'a, D: Dialect<Ext = Builtin>>(
         p.expect_keyword("SET")?;
         p.expect_keyword("COMMENT")?;
         let comment = grammar::parse_string(p)?;
-        return Ok(AlterUserAction::ModifyMfaMethod { method, comment });
+        return Ok(AlterUserAction::ModifyMfaMethod {
+            method: method.into(),
+            comment,
+        });
     }
     if p.at_keyword("REMOVE") && next.is_word("MFA") {
         p.advance();
         p.advance();
         p.expect_keyword("METHOD")?;
-        return parse_mfa_method(p).map(AlterUserAction::RemoveMfaMethod);
+        return parse_mfa_method(p).map(|v| AlterUserAction::RemoveMfaMethod(v.into()));
     }
     let unset = p.at_keyword("UNSET");
     if !unset && !p.at_keyword("SET") {
@@ -2535,16 +2528,16 @@ fn parse_alter_user_action<'a, D: Dialect<Ext = Builtin>>(
         p.advance();
         p.advance();
         return Ok(if unset {
-            AlterUserAction::UnsetPolicy(kind)
+            AlterUserAction::UnsetPolicy(kind.into())
         } else {
             AlterUserAction::SetPolicy {
-                kind,
+                kind: kind.into(),
                 policy: p.parse_ident()?,
             }
         });
     }
     if !unset && p.eat_keyword("DEFAULT_MFA_METHOD") {
-        return parse_mfa_method(p).map(AlterUserAction::SetDefaultMfaMethod);
+        return parse_mfa_method(p).map(|v| AlterUserAction::SetDefaultMfaMethod(v.into()));
     }
     if p.eat_keyword("TAG") {
         return Ok(if unset {
@@ -2658,11 +2651,9 @@ impl fmt::Display for AlterUser<'_> {
                     None => Ok(()),
                 }
             }
-            AlterUserAction::ModifyMfaMethod { method, comment } => write!(
-                f,
-                "MODIFY MFA METHOD {method} SET COMMENT {}",
-                Literal::String(*comment)
-            ),
+            AlterUserAction::ModifyMfaMethod { method, comment } => {
+                write!(f, "MODIFY MFA METHOD {method} SET COMMENT {}", comment)
+            }
             AlterUserAction::RemoveMfaMethod(method) => write!(f, "REMOVE MFA METHOD {method}"),
             AlterUserAction::SetDefaultMfaMethod(method) => {
                 write!(f, "SET DEFAULT_MFA_METHOD {method}")

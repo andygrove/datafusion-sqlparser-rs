@@ -25,6 +25,7 @@ use crate::ast::StatementKind;
 use crate::dialect::Dialect;
 use crate::lexer::{Token, TokenKind};
 use crate::parser::Parser;
+use std::borrow::Cow;
 
 fn at_any<'a, D: Dialect>(p: &Parser<'a, D>, words: &[&str]) -> bool {
     words.iter().any(|word| p.at_keyword(word))
@@ -104,8 +105,8 @@ pub fn parse_show<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Show<'a, D::
         clauses.push(clause);
     }
     Ok(Show {
-        modifiers,
-        object,
+        modifiers: modifiers.into_iter().map(Cow::Borrowed).collect(),
+        object: object.into_iter().map(Cow::Borrowed).collect(),
         name,
         clauses,
     })
@@ -139,7 +140,11 @@ fn parse_show_clause<'a, D: Dialect>(
         } else {
             None
         };
-        ShowClause::Location { from, scope, name }
+        ShowClause::Location {
+            from,
+            scope: scope.map(Cow::Borrowed),
+            name,
+        }
     } else {
         return Ok(None);
     };
@@ -242,10 +247,9 @@ pub fn parse_transaction<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Trans
         return parse_transaction_modes(p).map(Transaction::Start);
     }
     if p.eat_keyword("BEGIN") {
-        return Ok(Transaction::Begin(first_of(
-            p,
-            &["TRAN", "TRANSACTION", "WORK"],
-        )));
+        return Ok(Transaction::Begin(
+            first_of(p, &["TRAN", "TRANSACTION", "WORK"]).map(Cow::Borrowed),
+        ));
     }
     if p.at_keyword("COMMIT") {
         return parse_finish(p, FinishKind::Commit);
@@ -271,7 +275,7 @@ fn parse_use_part<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Ident<'a>> {
     if token.kind == TokenKind::String {
         p.advance();
         return Ok(Ident {
-            text: &token.text[1..token.text.len() - 1],
+            text: Cow::Borrowed(&token.text[1..token.text.len() - 1]),
             quote: Some(char::from(token.text.as_bytes()[0])),
             span: token.span,
         });
@@ -313,7 +317,7 @@ fn parse_explain_format<'a, D: Dialect>(
     let token = p.expect_kind(TokenKind::Word, "a format name")?;
     Ok(Some(ExplainFormat {
         equals,
-        name: token.text,
+        name: token.text.into(),
     }))
 }
 
@@ -358,9 +362,9 @@ pub fn parse_explain<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Explain<'
     let format = parse_explain_format(p)?;
     let target = D::parse_explain_target(p)?;
     Ok(Explain {
-        keyword,
+        keyword: keyword.into(),
         options,
-        detail,
+        detail: detail.map(Cow::Borrowed),
         analyze,
         verbose,
         estimate,
@@ -431,7 +435,11 @@ fn parse_explain_option<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Explai
     } else {
         return Err(p.expected("a number"));
     };
-    Ok(ExplainOption { name, sign, value })
+    Ok(ExplainOption {
+        name,
+        sign: sign.into(),
+        value: value.map(Cow::Borrowed),
+    })
 }
 
 // SET
@@ -473,7 +481,7 @@ pub fn parse_set<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<SetStatement<
     p.advance();
     let values = p.parse_comma_separated(Parser::parse_expr)?;
     Ok(SetStatement::Variable {
-        scope,
+        scope: scope.map(Cow::Borrowed),
         name,
         values,
     })
@@ -485,11 +493,17 @@ fn parse_special_set<'a, D: Dialect>(
 ) -> PResult<SetStatement<'a, D::Ext>> {
     if p.eat_keyword("ROLE") {
         let role = p.parse_expr()?;
-        return Ok(SetStatement::Role { scope, role });
+        return Ok(SetStatement::Role {
+            scope: scope.map(Cow::Borrowed),
+            role,
+        });
     }
     if p.eat_keyword("AUTHORIZATION") {
         let user = p.parse_expr()?;
-        return Ok(SetStatement::Authorization { scope, user });
+        return Ok(SetStatement::Authorization {
+            scope: scope.map(Cow::Borrowed),
+            user,
+        });
     }
     if p.eat_keyword("CHARACTERISTICS") {
         p.expect_keyword("AS")?;
@@ -519,20 +533,23 @@ fn parse_special_set<'a, D: Dialect>(
     if p.eat_keyword("TO") {
         let name = ObjectName {
             parts: vec![Ident {
-                text: "TIMEZONE",
+                text: "TIMEZONE".into(),
                 quote: None,
                 span: Span::default(),
             }],
         };
         let values = vec![p.parse_expr()?];
         return Ok(SetStatement::Variable {
-            scope,
+            scope: scope.map(Cow::Borrowed),
             name,
             values,
         });
     }
     let value = p.parse_expr()?;
-    Ok(SetStatement::TimeZone { scope, value })
+    Ok(SetStatement::TimeZone {
+        scope: scope.map(Cow::Borrowed),
+        value,
+    })
 }
 
 /// True at `SET NAMES`, for dialects that have it.
@@ -567,7 +584,11 @@ pub fn parse_set_assignments<'a, D: Dialect>(
         }
         p.advance();
         let value = p.parse_expr()?;
-        Ok(SetAssignment { scope, name, value })
+        Ok(SetAssignment {
+            scope: scope.map(Cow::Borrowed),
+            name,
+            value,
+        })
     })?;
     Ok(SetStatement::Assignments(assignments))
 }
@@ -633,7 +654,7 @@ pub fn parse_comment_on_with<'a, D: Dialect>(
     };
     Ok(CommentOn {
         if_exists,
-        kind,
+        kind: kind.into_iter().map(Cow::Borrowed).collect(),
         name,
         comment,
     })

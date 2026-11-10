@@ -499,7 +499,7 @@ fn in_table_target_can_be_renamed() {
     let mut statements = parse_sql::<Sqlite>("SELECT a IN lookup FROM source").unwrap();
     let _ = visit_relations_mut(&mut statements, |relation| {
         if relation.to_string() == "lookup" {
-            relation.parts[0].text = renamed.as_str();
+            relation.parts[0].text = renamed.as_str().into();
         }
         ControlFlow::<()>::Continue(())
     });
@@ -536,7 +536,7 @@ fn value_visits_can_redact_literals() {
 
         fn pre_visit_value(&mut self, value: &mut Literal<'a>) -> ControlFlow<()> {
             if let Literal::String(string) = value {
-                string.text = &self.secrets[self.index];
+                string.text = self.secrets[self.index].as_str().into();
                 self.index += 1;
             }
             ControlFlow::Continue(())
@@ -560,25 +560,21 @@ fn value_visits_can_redact_literals() {
 
 #[test]
 fn identifiers_can_be_rewritten() {
-    // `to_uppercase` allocates inside the hook in the original; here the text
-    // must come from data that outlives the tree.
-    let upper = ["A".to_string(), "B".to_string(), "T".to_string()];
+    // A replacement can be text the hook allocates, as in the original.
     let mut statements = parse_sql::<Postgres>("SELECT a, b FROM t").unwrap();
 
-    struct Upper<'r>(&'r [String]);
+    struct Upper;
 
-    impl<'a> VisitorMut<'a, Builtin> for Upper<'a> {
+    impl<'a> VisitorMut<'a, Builtin> for Upper {
         type Break = ();
 
         fn pre_visit_ident(&mut self, ident: &mut Ident<'a>) -> ControlFlow<()> {
-            if let Some(found) = self.0.iter().find(|s| s.eq_ignore_ascii_case(ident.text)) {
-                ident.text = found;
-            }
+            ident.text = ident.text.to_uppercase().into();
             ControlFlow::Continue(())
         }
     }
 
-    let _ = VisitMut::visit(&mut statements, &mut Upper(&upper));
+    let _ = VisitMut::visit(&mut statements, &mut Upper);
     assert_eq!(statements[0].to_string(), "SELECT A, B FROM T");
 }
 
@@ -587,7 +583,7 @@ fn a_replacement_lives_in_data_that_outlives_the_tree() {
     let replacement = String::from("bar");
     let mut statements = parse_sql::<Postgres>("SELECT a FROM foo").unwrap();
     let _ = visit_relations_mut(&mut statements, |table| {
-        table.parts[0].text = replacement.as_str();
+        table.parts[0].text = replacement.as_str().into();
         ControlFlow::<()>::Continue(())
     });
     assert_eq!(statements[0].to_string(), "SELECT a FROM bar");
@@ -628,7 +624,7 @@ fn statements_are_visited_and_mutated() {
     let _ = visit_statements_mut(&mut statements, |statement| {
         if let StatementKind::Query(query) = &mut statement.kind {
             query.limit = Some(Box::new(Limit {
-                count: Some(ExprKind::Literal(Literal::Number("1")).into()),
+                count: Some(ExprKind::Literal(Literal::Number("1".into())).into()),
                 offset: None,
                 offset_rows: OffsetRows::None,
                 offset_comma: false,

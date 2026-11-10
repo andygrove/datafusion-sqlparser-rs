@@ -285,7 +285,7 @@ fn xor_binds_between_and_or_in_mysql() {
         ExprKind::Binary { op, .. } => op,
         other => panic!("{other:?}"),
     };
-    assert_eq!(top("a XOR b AND c"), BinaryOp::Named("XOR"));
+    assert_eq!(top("a XOR b AND c"), BinaryOp::Named("XOR".into()));
     assert_eq!(top("a OR b XOR c"), BinaryOp::Or);
     round_trips::<MySql>("SELECT a XOR b");
     assert_eq!(renders::<Postgres>("SELECT a XOR"), "SELECT a AS XOR");

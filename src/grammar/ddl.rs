@@ -23,6 +23,7 @@ use crate::ast::StatementKind;
 use crate::dialect::Dialect;
 use crate::lexer::TokenKind;
 use crate::parser::Parser;
+use std::borrow::Cow;
 
 fn parse_signed_number<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<SignedNumber<'a>> {
     let sign = if p.eat_op("-") {
@@ -34,8 +35,8 @@ fn parse_signed_number<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<SignedN
     };
     let token = p.expect_kind(TokenKind::Number, "a number")?;
     Ok(SignedNumber {
-        sign,
-        digits: token.text,
+        sign: sign.into(),
+        digits: token.text.into(),
     })
 }
 
@@ -393,7 +394,7 @@ pub fn parse_foreign_key_ref<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<F
     Ok(ForeignKeyRef {
         table,
         columns,
-        match_kind,
+        match_kind: match_kind.map(Cow::Borrowed),
         on_delete,
         on_update,
     })
@@ -512,7 +513,7 @@ pub fn parse_data_type_after_name<'a, D: Dialect>(
         suffix = DataTypeSuffix::Varying;
     }
     let args = if p.eat_op("(") {
-        let args = p.parse_comma_separated(parse_number_text)?;
+        let args = p.parse_comma_separated(|p| parse_number_text(p).map(Cow::Borrowed))?;
         p.expect_op(")")?;
         args
     } else {
@@ -558,7 +559,7 @@ pub fn parse_array_suffix<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Arra
         } else {
             None
         };
-        return Ok(ArrayType::Keyword(size));
+        return Ok(ArrayType::Keyword(size.map(Cow::Borrowed)));
     }
     Ok(ArrayType::None)
 }
@@ -569,7 +570,12 @@ pub fn parse_array_brackets<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Ar
     while p.at_op("[") {
         dimensions.push(parse_array_dimension(p)?);
     }
-    Ok(ArrayType::Brackets(dimensions))
+    Ok(ArrayType::Brackets(
+        dimensions
+            .into_iter()
+            .map(|size| size.map(Cow::Borrowed))
+            .collect(),
+    ))
 }
 
 pub fn parse_number_text<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<&'a str> {
@@ -873,7 +879,10 @@ pub fn parse_create_index<'a, D: Dialect>(
         nulls_distinct,
         with,
         predicate,
-        settings,
+        settings: settings
+            .into_iter()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect(),
     })
 }
 
@@ -965,16 +974,15 @@ pub fn parse_drop<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<DropObject<'
     };
     let if_exists = parse_if_exists(p);
     let names = p.parse_comma_separated(parse_object_name)?;
-    let on = if matches!(
-        object_type,
-        ObjectType::Index | ObjectType::Named("TRIGGER" | "POLICY")
-    ) && p.eat_keyword("ON")
+    let on = if (matches!(object_type, ObjectType::Index)
+        || matches!(&object_type, ObjectType::Named(name) if name == "TRIGGER" || name == "POLICY"))
+        && p.eat_keyword("ON")
     {
         Some(parse_object_name(p)?)
     } else {
         None
     };
-    if object_type == ObjectType::Named("POLICY") && on.is_none() {
+    if object_type == ObjectType::Named("POLICY".into()) && on.is_none() {
         return Err(p.expected("ON and the policy's table"));
     }
     let behavior = parse_drop_behavior(p);

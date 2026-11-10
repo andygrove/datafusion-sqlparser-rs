@@ -17,13 +17,14 @@
 
 //! Apache Spark SQL.
 
+use std::borrow::Cow;
 use std::fmt;
 use std::mem::discriminant;
 
 use crate::PResult;
 use crate::ast::{
     AlterTableOp, AngleArguments, BinaryOp, ColumnOption, CreateTable, Cte, DataType, Expr,
-    ExprKind, GroupByModifier, Ident, Insert, InsertSource, Join, JoinKind, LateralView, Literal,
+    ExprKind, GroupByModifier, Ident, Insert, InsertSource, Join, JoinKind, LateralView,
     ObjectName, OrderByItem, PipeOperator, Pivot, Quantifier, Query, QueryDistribution,
     SampleAmount, SampleClause, SelectItem, SelectItemKind, Span, SpecialExpr, Statement,
     StatementKind, StringLiteral, StructField, TableFactor, TableRef, TableSample, UnaryOp,
@@ -47,7 +48,6 @@ pub struct Spark;
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -68,7 +68,6 @@ pub enum SparkStatement<'a> {
 /// `CACHE [flag] TABLE name [OPTIONS(...)] [[AS] query]`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -89,7 +88,6 @@ pub struct SparkCache<'a> {
 /// [`Insert`].
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -112,7 +110,6 @@ pub struct SparkInsert<'a> {
 /// `INSERT OVERWRITE [LOCAL] DIRECTORY 'path' [STORED AS format] query`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -129,7 +126,6 @@ pub struct SparkInsertDirectory<'a> {
 /// the core [`CreateTable`].
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -144,7 +140,6 @@ pub struct SparkCreateTable<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -164,7 +159,6 @@ pub enum SparkTableClause<'a> {
 /// `key = value` or `key value` in `OPTIONS` and `TBLPROPERTIES`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -178,7 +172,6 @@ pub struct SparkOption<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct PartitionColumn<'a> {
     pub name: Ident<'a>,
@@ -412,7 +405,7 @@ fn parse_type_after_name<'a, D: Dialect>(
     p: &mut Parser<'a, D>,
     name: Ident<'a>,
 ) -> PResult<DataType<'a>> {
-    let mut data_type = grammar::parse_data_type_after_name(p, name)?;
+    let mut data_type = grammar::parse_data_type_after_name(p, name.clone())?;
     let complex = name.quote.is_none()
         && ["ARRAY", "MAP", "STRUCT"]
             .iter()
@@ -448,7 +441,7 @@ fn parse_struct_field<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<StructFi
     {
         p.advance();
         let type_name = Ident {
-            text: &token.text[1..],
+            text: Cow::Borrowed(&token.text[1..]),
             quote: None,
             span: Span {
                 start: token.span.start + 1,
@@ -731,7 +724,11 @@ pub fn parse_sample_clause<'a, D: Dialect>(
     Ok(SampleClause {
         long_form,
         method: None,
-        amount: SampleAmount::Bucket { bucket, total, on },
+        amount: SampleAmount::Bucket {
+            bucket: bucket.into(),
+            total: total.into(),
+            on,
+        },
         parenthesized: true,
         seed: None,
         offset: None,
@@ -1016,7 +1013,7 @@ fn parse_cache_table_name<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Obje
     p.advance();
     Ok(ObjectName {
         parts: vec![Ident {
-            text: &token.text[1..token.text.len() - 1],
+            text: Cow::Borrowed(&token.text[1..token.text.len() - 1]),
             quote: token.text.chars().next(),
             span: token.span,
         }],
@@ -1152,7 +1149,7 @@ impl fmt::Display for SparkInsertDirectory<'_> {
         if self.local {
             f.write_str(" LOCAL")?;
         }
-        write!(f, " DIRECTORY {}", Literal::String(self.path))?;
+        write!(f, " DIRECTORY {}", self.path)?;
         if let Some(format) = &self.stored_as {
             write!(f, " STORED AS {format}")?;
         }
@@ -1348,8 +1345,8 @@ impl fmt::Display for SparkTableClause<'_> {
             Self::Using(format) => write!(f, "USING {format}"),
             Self::Options(options) => write!(f, "OPTIONS ({})", comma(options)),
             Self::PartitionedBy(columns) => write!(f, "PARTITIONED BY ({})", comma(columns)),
-            Self::Location(location) => write!(f, "LOCATION {}", Literal::String(*location)),
-            Self::Comment(comment) => write!(f, "COMMENT {}", Literal::String(*comment)),
+            Self::Location(location) => write!(f, "LOCATION {}", location),
+            Self::Comment(comment) => write!(f, "COMMENT {}", comment),
             Self::TblProperties(options) => write!(f, "TBLPROPERTIES ({})", comma(options)),
             Self::Like(source) => write!(f, "LIKE {source}"),
         }

@@ -102,7 +102,7 @@ fn shared_syntax_produces_equal_trees_across_dialects() {
 
 /// Stands in for a downstream tool: one non-generic function handles the
 /// output of every built-in dialect.
-fn cast_target<'a>(query: &Query<'a, Builtin>) -> Option<&'a str> {
+fn cast_target<'q>(query: &'q Query<'_, Builtin>) -> Option<&'q str> {
     match &body(query).projection[0].kind {
         SelectItemKind::Expr {
             expr:
@@ -111,7 +111,7 @@ fn cast_target<'a>(query: &Query<'a, Builtin>) -> Option<&'a str> {
                     ..
                 },
             ..
-        } => Some(ty.name.text),
+        } => Some(ty.name.text.as_ref()),
         _ => None,
     }
 }
@@ -131,6 +131,8 @@ fn one_non_generic_consumer_handles_any_builtin_dialect() {
 fn identifiers_chosen_at_runtime_still_borrow_from_the_input() {
     let sql = String::from("SELECT a FROM tbl");
     let select = parse_query_as(Postgres, &sql).unwrap();
-    let name = table_name(&body(&select).from[0].relation).parts[0].text;
+    let name = table_name(&body(&select).from[0].relation).parts[0]
+        .text
+        .clone();
     assert!(std::ptr::eq(name.as_ptr(), sql[14..].as_ptr()));
 }

@@ -276,7 +276,7 @@ fn index_definitions_in_create_table() {
         &vec![
             KeyOption::Using(ident("HASH")),
             KeyOption::Comment(StringLiteral {
-                text: "c",
+                text: "c".into(),
                 quote: '\'',
                 backslash_escapes: true,
                 national: false,
@@ -302,7 +302,7 @@ fn index_definitions_in_create_table() {
     assert!(matches!(
         &table.constraints[0].kind,
         TableConstraintKind::Key {
-            keyword: "PRIMARY KEY",
+            keyword: std::borrow::Cow::Borrowed("PRIMARY KEY"),
             ..
         }
     ));
@@ -477,13 +477,13 @@ fn create_view_parameters() {
     ) else {
         panic!("not a view");
     };
-    assert_eq!(view.algorithm, Some("MERGE"));
-    assert_eq!(view.security, Some("DEFINER"));
+    assert_eq!(view.algorithm.as_deref(), Some("MERGE"));
+    assert_eq!(view.security.as_deref(), Some("DEFINER"));
     let definer = view.definer.as_ref().unwrap();
     assert_eq!(
         definer.name.parts[0],
         Ident {
-            text: "r",
+            text: "r".into(),
             quote: Some('`'),
             span: Span::default()
         }
@@ -669,7 +669,7 @@ fn insert_forms() {
     else {
         panic!("not an insert");
     };
-    assert_eq!(insert.modifiers.priority, Some("LOW_PRIORITY"));
+    assert_eq!(insert.modifiers.priority.as_deref(), Some("LOW_PRIORITY"));
     let InsertSource::Set(assignments) = &insert.source else {
         panic!("not SET");
     };
@@ -761,7 +761,10 @@ fn table_partitions_and_hints() {
     };
     assert_eq!(name.parts[0].text, "t");
     assert_eq!(
-        partitions.iter().map(|p| p.text).collect::<Vec<_>>(),
+        partitions
+            .iter()
+            .map(|p| p.text.as_ref())
+            .collect::<Vec<_>>(),
         ["p0", "p2"]
     );
 
@@ -785,7 +788,7 @@ fn straight_join_and_cross_join_on() {
     };
     assert_eq!(
         select.from[0].joins[0].kind,
-        JoinKind::Custom("STRAIGHT_JOIN")
+        JoinKind::Custom("STRAIGHT_JOIN".into())
     );
     rejected("SELECT * FROM a NATURAL STRAIGHT_JOIN b");
 }
@@ -912,11 +915,11 @@ fn expressions() {
         panic!("not a binary expression");
     };
     assert_eq!(*left, col("@a"));
-    assert_eq!(op, BinaryOp::Named(":="));
+    assert_eq!(op, BinaryOp::Named(":=".into()));
     assert!(matches!(
         right.kind,
         ExprKind::Binary {
-            op: BinaryOp::Named(":="),
+            op: BinaryOp::Named(std::borrow::Cow::Borrowed(":=")),
             ..
         }
     ));
@@ -987,7 +990,10 @@ fn adjacent_string_literals() {
     let MySqlExpr::ConcatenatedStrings(parts) = mysql_expr(expr("'a' \"b\"")) else {
         panic!("not concatenated");
     };
-    assert_eq!(parts.iter().map(|p| p.text).collect::<Vec<_>>(), ["a", "b"]);
+    assert_eq!(
+        parts.iter().map(|p| p.text.as_ref()).collect::<Vec<_>>(),
+        ["a", "b"]
+    );
     assert!(parse_expr::<Core>("'a' 'b'").is_err());
 }
 

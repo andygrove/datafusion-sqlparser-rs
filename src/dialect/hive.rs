@@ -17,14 +17,15 @@
 
 //! Apache Hive, built on the Spark SQL rules.
 
+use std::borrow::Cow;
 use std::fmt;
 
 use crate::PResult;
 use crate::ast::BinaryOp;
 use crate::ast::{
     AlterTableOp, ColumnOption, CreateFlags, CreateTable, Cte, DataType, Expr, GroupByModifier,
-    Ident, Join, LateralView, Literal, ObjectName, OrderByItem, Quantifier, QueryDistribution,
-    SampleClause, SelectItem, Span, Statement, StatementKind, StringLiteral, TableFactor, TableRef,
+    Ident, Join, LateralView, ObjectName, OrderByItem, Quantifier, QueryDistribution, SampleClause,
+    SelectItem, Span, Statement, StatementKind, StringLiteral, TableFactor, TableRef,
 };
 use crate::dialect::builtin::BuiltinStatement;
 use crate::dialect::databricks;
@@ -43,7 +44,6 @@ pub struct Hive;
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct HiveCreateConnector<'a> {
     pub if_not_exists: bool,
@@ -57,12 +57,11 @@ pub struct HiveCreateConnector<'a> {
 /// What `ALTER CONNECTOR ... SET` changes.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum HiveAlterConnectorAction<'a> {
     Properties(Vec<(StringLiteral<'a>, StringLiteral<'a>)>),
     Url(StringLiteral<'a>),
-    Owner(&'a str, StringLiteral<'a>),
+    Owner(Cow<'a, str>, StringLiteral<'a>),
 }
 
 /// Parses `CREATE`, `ALTER` or `DROP CONNECTOR`, or returns `None` at anything else.
@@ -126,7 +125,7 @@ fn parse_connector<'a, D: Dialect<Ext = Builtin>>(
                     p.expect_keyword("ROLE")?;
                     "ROLE"
                 };
-                HiveAlterConnectorAction::Owner(kind, spark::parse_string(p)?)
+                HiveAlterConnectorAction::Owner(kind.into(), spark::parse_string(p)?)
             };
             HiveStatement::AlterConnector { name, action }
         }
@@ -161,7 +160,6 @@ fn parse_connector_properties<'a, D: Dialect<Ext = Builtin>>(
 /// Statements only Hive has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -192,7 +190,7 @@ pub enum HiveStatement<'a> {
         repair: bool,
         #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
         table: ObjectName<'a>,
-        action: Option<&'a str>,
+        action: Option<Cow<'a, str>>,
     },
     /// `SET HIVEVAR:name = value, ...`
     SetHiveVar {
@@ -205,7 +203,6 @@ pub enum HiveStatement<'a> {
 /// `CREATE [TEMPORARY] [EXTERNAL] TABLE` with clauses only Hive has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -222,7 +219,6 @@ pub struct HiveCreateTable<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -241,7 +237,6 @@ pub enum HiveTableClause<'a> {
 /// `CLUSTERED BY (a) [SORTED BY (a ASC)] INTO n BUCKETS`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -250,12 +245,11 @@ pub enum HiveTableClause<'a> {
 pub struct HiveClusteredBy<'a> {
     pub columns: Vec<Ident<'a>>,
     pub sorted_by: Vec<OrderByItem<'a, Builtin>>,
-    pub buckets: &'a str,
+    pub buckets: Cow<'a, str>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -268,12 +262,11 @@ pub enum HiveRowFormat<'a> {
         properties: Vec<SparkOption<'a>>,
     },
     /// `DELIMITED` and its delimiters, each with the words before it.
-    Delimited(Vec<(&'a str, StringLiteral<'a>)>),
+    Delimited(Vec<(Cow<'a, str>, StringLiteral<'a>)>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum HiveStorage<'a> {
     /// `STORED AS format`
@@ -288,20 +281,18 @@ pub enum HiveStorage<'a> {
 /// `CREATE [OR REPLACE] [TEMPORARY] FUNCTION name AS 'class' [USING kind 'uri']`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct HiveCreateFunction<'a> {
     pub or_replace: bool,
     pub temporary: bool,
     pub name: ObjectName<'a>,
     pub class: StringLiteral<'a>,
-    pub using: Option<(&'a str, StringLiteral<'a>)>,
+    pub using: Option<(Cow<'a, str>, StringLiteral<'a>)>,
 }
 
 /// `ANALYZE TABLE name ...`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -321,7 +312,6 @@ pub struct HiveAnalyze<'a> {
 /// `LOAD DATA [LOCAL] INPATH 'path' [OVERWRITE] INTO TABLE name ...`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -424,7 +414,7 @@ fn parse_clustered_by<'a, D: Dialect<Ext = Builtin>>(
     Ok(HiveClusteredBy {
         columns,
         sorted_by,
-        buckets,
+        buckets: buckets.into(),
     })
 }
 
@@ -470,7 +460,9 @@ fn parse_row_format<'a, D: Dialect<Ext = Builtin>>(
 ) -> PResult<HiveRowFormat<'a>> {
     p.expect_keyword("FORMAT")?;
     if p.eat_keyword("DELIMITED") {
-        return parse_delimiters(p).map(HiveRowFormat::Delimited);
+        return parse_delimiters(p).map(|delimiters| {
+            HiveRowFormat::Delimited(delimiters.into_iter().map(|(k, v)| (k.into(), v)).collect())
+        });
     }
     p.expect_keyword("SERDE")?;
     let class = spark::parse_string(p)?;
@@ -640,7 +632,7 @@ fn parse_create_function<'a, D: Dialect<Ext = Builtin>>(
         temporary,
         name,
         class,
-        using,
+        using: using.map(|(kind, text)| (kind.into(), text)),
     })
 }
 
@@ -715,7 +707,7 @@ fn parse_msck<'a, D: Dialect<Ext = Builtin>>(p: &mut Parser<'a, D>) -> PResult<H
     Ok(HiveStatement::Msck {
         repair,
         table,
-        action,
+        action: action.map(Cow::Borrowed),
     })
 }
 
@@ -736,7 +728,7 @@ fn parse_set_hivevar<'a, D: Dialect<Ext = Builtin>>(
     let token = p.peek();
     p.advance();
     let mut parts = vec![Ident {
-        text: &token.text[1..],
+        text: Cow::Borrowed(&token.text[1..]),
         quote: None,
         span: Span {
             start: token.span.start + 1,
@@ -798,6 +790,10 @@ fn parse_with<'a, D: Dialect<Ext = Builtin>>(
         None
     };
     if from.is_none() && !p.at_keyword("INSERT") {
+        let with = Some(Box::new(crate::ast::With {
+            recursive: false,
+            ctes: with,
+        }));
         let query = grammar::parse_query_after_with(p, with)?;
         return Ok(StatementKind::Query(Box::new(query)).into());
     }
@@ -900,7 +896,7 @@ pub fn parse_table_factor<'a, D: Dialect>(
         p.advance();
         return Ok(TableFactor::Named(ObjectName {
             parts: vec![Ident {
-                text: token.text,
+                text: token.text.into(),
                 quote: None,
                 span: token.span,
             }],
@@ -915,7 +911,10 @@ where
     ExprExtOf<'a, D>: From<MySqlExpr<'a, D::Ext>>,
 {
     if p.at_op("<=>") {
-        return Some(InfixRule::binary(prec::COMPARE, BinaryOp::Named("<=>")));
+        return Some(InfixRule::binary(
+            prec::COMPARE,
+            BinaryOp::Named("<=>".into()),
+        ));
     }
     spark::infix_rule(p)
 }
@@ -1061,7 +1060,7 @@ impl fmt::Display for HiveRowFormat<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Serde { class, properties } => {
-                write!(f, "ROW FORMAT SERDE {}", Literal::String(*class))?;
+                write!(f, "ROW FORMAT SERDE {}", class)?;
                 if !properties.is_empty() {
                     write!(f, " WITH SERDEPROPERTIES ({})", comma(properties))?;
                 }
@@ -1070,7 +1069,7 @@ impl fmt::Display for HiveRowFormat<'_> {
             Self::Delimited(delimiters) => {
                 f.write_str("ROW FORMAT DELIMITED")?;
                 for (label, value) in delimiters {
-                    write!(f, " {label} {}", Literal::String(*value))?;
+                    write!(f, " {label} {}", value)?;
                 }
                 Ok(())
             }
@@ -1082,12 +1081,9 @@ impl fmt::Display for HiveStorage<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Format(format) => write!(f, "STORED AS {format}"),
-            Self::InputOutput { input, output } => write!(
-                f,
-                "STORED AS INPUTFORMAT {} OUTPUTFORMAT {}",
-                Literal::String(*input),
-                Literal::String(*output)
-            ),
+            Self::InputOutput { input, output } => {
+                write!(f, "STORED AS INPUTFORMAT {} OUTPUTFORMAT {}", input, output)
+            }
         }
     }
 }
@@ -1105,12 +1101,12 @@ impl fmt::Display for HiveClusteredBy<'_> {
 impl fmt::Display for HiveTableClause<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Comment(comment) => write!(f, "COMMENT {}", Literal::String(*comment)),
+            Self::Comment(comment) => write!(f, "COMMENT {}", comment),
             Self::PartitionedBy(columns) => write!(f, "PARTITIONED BY ({})", comma(columns)),
             Self::ClusteredBy(clustered) => clustered.fmt(f),
             Self::RowFormat(format) => format.fmt(f),
             Self::Stored(storage) => storage.fmt(f),
-            Self::Location(location) => write!(f, "LOCATION {}", Literal::String(*location)),
+            Self::Location(location) => write!(f, "LOCATION {}", location),
             Self::TblProperties(options) => write!(f, "TBLPROPERTIES ({})", comma(options)),
         }
     }
@@ -1146,14 +1142,9 @@ impl fmt::Display for HiveCreateTable<'_> {
 impl fmt::Display for HiveCreateFunction<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write_create_flags(f, self.or_replace, self.temporary)?;
-        write!(
-            f,
-            "FUNCTION {} AS {}",
-            self.name,
-            Literal::String(self.class)
-        )?;
+        write!(f, "FUNCTION {} AS {}", self.name, self.class)?;
         if let Some((kind, uri)) = &self.using {
-            write!(f, " USING {kind} {}", Literal::String(*uri))?;
+            write!(f, " USING {kind} {}", uri)?;
         }
         Ok(())
     }
@@ -1191,8 +1182,7 @@ impl fmt::Display for HiveLoadData<'_> {
         write!(
             f,
             "LOAD DATA {local}INPATH {} {overwrite}INTO TABLE {}",
-            Literal::String(self.path),
-            self.table
+            self.path, self.table
         )?;
         if !self.partition.is_empty() {
             write!(f, " PARTITION ({})", comma(&self.partition))?;
@@ -1211,14 +1201,14 @@ impl fmt::Display for HiveStatement<'_> {
                 f.write_str("CREATE CONNECTOR ")?;
                 write_if_not_exists(f, connector.if_not_exists)?;
                 connector.name.fmt(f)?;
-                if let Some(connector_type) = connector.connector_type {
-                    write!(f, " TYPE {}", Literal::String(connector_type))?;
+                if let Some(ref connector_type) = connector.connector_type {
+                    write!(f, " TYPE {}", connector_type)?;
                 }
-                if let Some(url) = connector.url {
-                    write!(f, " URL {}", Literal::String(url))?;
+                if let Some(ref url) = connector.url {
+                    write!(f, " URL {}", url)?;
                 }
-                if let Some(comment) = connector.comment {
-                    write!(f, " COMMENT {}", Literal::String(comment))?;
+                if let Some(ref comment) = connector.comment {
+                    write!(f, " COMMENT {}", comment)?;
                 }
                 if !connector.properties.is_empty() {
                     f.write_str(" WITH DCPROPERTIES ")?;
@@ -1241,10 +1231,10 @@ impl fmt::Display for HiveStatement<'_> {
                         write_connector_properties(f, properties)
                     }
                     HiveAlterConnectorAction::Url(url) => {
-                        write!(f, "URL {}", Literal::String(*url))
+                        write!(f, "URL {}", url)
                     }
                     HiveAlterConnectorAction::Owner(kind, name) => {
-                        write!(f, "OWNER {kind} {}", Literal::String(*name))
+                        write!(f, "OWNER {kind} {}", name)
                     }
                 }
             }
@@ -1287,7 +1277,7 @@ fn write_connector_properties(
         if i > 0 {
             f.write_str(", ")?;
         }
-        write!(f, "{} = {}", Literal::String(*key), Literal::String(*value))?;
+        write!(f, "{} = {}", key, value)?;
     }
     f.write_str(")")
 }

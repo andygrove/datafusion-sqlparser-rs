@@ -17,6 +17,7 @@
 
 //! Google BigQuery.
 
+use std::borrow::Cow;
 use std::fmt;
 
 use crate::PResult;
@@ -46,7 +47,6 @@ pub struct BigQuery;
 /// Statements only Google BigQuery has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -85,7 +85,6 @@ pub enum BigQueryStatement<'a> {
 /// BigQuery has. Without them, the statement is the core [`CreateTable`].
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -96,7 +95,7 @@ pub struct BigQueryCreateTable<'a> {
     pub external: bool,
     /// `LIKE` or `CLONE`, with its table.
     #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
-    pub source: Option<(&'a str, ObjectName<'a>)>,
+    pub source: Option<(Cow<'a, str>, ObjectName<'a>)>,
     pub connection: Option<ObjectName<'a>>,
     pub partition_by: Option<Expr<'a, Builtin>>,
     pub cluster_by: Vec<Expr<'a, Builtin>>,
@@ -106,7 +105,6 @@ pub struct BigQueryCreateTable<'a> {
 /// `CREATE VIEW` with `OPTIONS`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -127,7 +125,6 @@ pub struct BigQueryCreateView<'a> {
 /// A view column and any `OPTIONS` written after it.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -140,7 +137,6 @@ pub struct BigQueryViewColumn<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct BigQueryFunctionArg<'a> {
     pub name: Ident<'a>,
@@ -150,7 +146,6 @@ pub struct BigQueryFunctionArg<'a> {
 /// `CREATE [OR REPLACE] [TEMPORARY] FUNCTION`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -176,7 +171,6 @@ pub struct BigQueryCreateFunction<'a> {
 /// `CREATE SNAPSHOT TABLE name CLONE source ...`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -195,7 +189,6 @@ pub struct BigQueryCreateSnapshot<'a> {
 /// `CREATE SCHEMA` with `DEFAULT COLLATE` or `OPTIONS`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -210,7 +203,6 @@ pub struct BigQueryCreateSchema<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -224,7 +216,6 @@ pub struct BigQueryExportData<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -238,7 +229,6 @@ pub struct BigQueryAlterSchema<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -257,7 +247,6 @@ pub enum BigQueryAlterSchemaOp<'a> {
 /// `BEGIN ...; [EXCEPTION WHEN name THEN ...;] END`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -273,7 +262,6 @@ pub struct BigQueryBlock<'a> {
 /// `WHEN name [OR name ...] THEN statements`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -287,7 +275,6 @@ pub struct BigQueryHandler<'a> {
 /// `DECLARE a, b type [DEFAULT expr]`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -301,7 +288,6 @@ pub struct BigQueryDeclare<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -315,7 +301,6 @@ pub enum BigQueryRaise<'a> {
 /// `EXECUTE IMMEDIATE expr [INTO a, b] [USING x [AS y], ...]`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -330,7 +315,6 @@ pub struct BigQueryExecuteImmediate<'a> {
 /// Expressions only Google BigQuery has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -356,7 +340,6 @@ pub enum BigQueryExpr<'a> {
 /// `STRUCT<...>(values)` or `STRUCT(values)`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -370,7 +353,6 @@ pub struct BigQueryStruct<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -383,7 +365,6 @@ pub struct BigQueryStar<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -397,7 +378,6 @@ pub struct BigQueryInUnnest<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -413,7 +393,6 @@ pub struct BigQueryCastFormat<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -426,7 +405,6 @@ pub struct BigQueryExtractWeek<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -447,7 +425,6 @@ pub struct BigQueryCall<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -461,7 +438,6 @@ pub struct BigQuerySubqueryCall<'a> {
 /// Table factors only Google BigQuery has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -474,7 +450,6 @@ pub enum BigQueryTableFactor<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -601,7 +576,7 @@ pub fn string_literal(token: Token<'_>) -> StringLiteral<'_> {
     let len = if triple { 3 } else { 1 };
     StringLiteral {
         national: false,
-        text: &body[len..body.len() - len],
+        text: Cow::Borrowed(&body[len..body.len() - len]),
         quote,
         backslash_escapes: prefix != StringPrefix::Raw,
         prefix,
@@ -777,7 +752,7 @@ fn parse_table_name_part<'a, D: Dialect>(
     }
     let span = Span { start, end };
     Ok(Ident {
-        text: p.text(span),
+        text: p.text(span).into(),
         quote: None,
         span,
     })
@@ -791,9 +766,13 @@ pub fn parse_table_name<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Object
     }
     if parts.iter().any(|part| part.text.contains('.')) {
         parts = parts
-            .iter()
+            .into_iter()
             .flat_map(|part| {
-                part.text.split('.').map(|text| Ident {
+                let pieces: Vec<Cow<'a, str>> = match part.text {
+                    Cow::Borrowed(text) => text.split('.').map(Cow::Borrowed).collect(),
+                    Cow::Owned(text) => text.split('.').map(|t| Cow::Owned(t.to_owned())).collect(),
+                };
+                pieces.into_iter().map(move |text| Ident {
                     text,
                     quote: part.quote,
                     span: part.span,
@@ -883,7 +862,7 @@ pub fn parse_data_type<'a, D: Dialect<Ext = Builtin>>(
         return Ok(DataType {
             qualifier: Vec::new(),
             name: Ident {
-                text: "ANY TYPE",
+                text: "ANY TYPE".into(),
                 quote: None,
                 span: name.span,
             },
@@ -893,7 +872,7 @@ pub fn parse_data_type<'a, D: Dialect<Ext = Builtin>>(
             array: crate::ast::ArrayType::None,
         });
     }
-    let mut data_type = grammar::parse_data_type_after_name(p, name)?;
+    let mut data_type = grammar::parse_data_type_after_name(p, name.clone())?;
     let is_array = name.quote.is_none() && name.text.eq_ignore_ascii_case("ARRAY");
     let is_struct = name.quote.is_none() && name.text.eq_ignore_ascii_case("STRUCT");
     if is_array && !p.at_op("<") {
@@ -945,7 +924,7 @@ fn parse_struct_field<'a, D: Dialect<Ext = Builtin>>(
     {
         p.advance();
         let type_name = Ident {
-            text: &token.text[1..],
+            text: Cow::Borrowed(&token.text[1..]),
             quote: None,
             span: Span {
                 start: token.span.start + 1,
@@ -995,7 +974,7 @@ fn parse_field_option_value<'a, D: Dialect<Ext = Builtin>>(
     let token = p.peek();
     let literal = match token.kind {
         TokenKind::String => Literal::String(D::string_literal(token)),
-        TokenKind::Number => Literal::Number(token.text),
+        TokenKind::Number => Literal::Number(token.text.into()),
         TokenKind::Word if token.is_word("TRUE") => Literal::Boolean(true),
         TokenKind::Word if token.is_word("FALSE") => Literal::Boolean(false),
         TokenKind::Word if token.is_word("NULL") => Literal::Null,
@@ -1199,7 +1178,7 @@ fn parse_create_table<'a, D: Dialect<Ext = Builtin>>(
         BigQueryCreateTable {
             table,
             external,
-            source,
+            source: source.map(|(kind, name)| (kind.into(), name)),
             connection,
             partition_by,
             cluster_by,
@@ -1653,7 +1632,7 @@ pub fn parse_select_head<'a, D: Dialect<Ext = Builtin>>(
         if let Some(word) = word {
             p.advance();
             p.advance();
-            modifiers.bigquery_as = Some(word);
+            modifiers.bigquery_as = Some(word.into());
             // `ALL` is the default and is not written back out.
             if quantifier == SetQuantifier::All {
                 quantifier = SetQuantifier::None;
@@ -1809,7 +1788,7 @@ pub fn parse_table_factor<'a, D: Dialect<Ext = Builtin>>(
         let at = p.parse_expr()?;
         return Ok(TableFactor::TimeTravel(Box::new(TimeTravel {
             name,
-            kind: "FOR SYSTEM_TIME",
+            kind: "FOR SYSTEM_TIME".into(),
             at,
         })));
     }
@@ -2107,7 +2086,7 @@ pub fn parse_prefix<'a, D: Dialect<Ext = Builtin>>(
             let ty = DataType {
                 qualifier: Vec::new(),
                 name: Ident {
-                    text: token.text,
+                    text: token.text.into(),
                     quote: None,
                     span: token.span,
                 },
@@ -2707,12 +2686,10 @@ impl fmt::Display for BigQueryExpr<'_> {
                 write!(
                     f,
                     "{keyword}({} AS {} FORMAT {}",
-                    cast.expr,
-                    cast.ty,
-                    Literal::String(cast.format)
+                    cast.expr, cast.ty, cast.format
                 )?;
-                if let Some(zone) = cast.time_zone {
-                    write!(f, " AT TIME ZONE {}", Literal::String(zone))?;
+                if let Some(ref zone) = cast.time_zone {
+                    write!(f, " AT TIME ZONE {}", zone)?;
                 }
                 f.write_str(")")
             }

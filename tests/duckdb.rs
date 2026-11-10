@@ -125,6 +125,44 @@ fn extensions() {
 }
 
 #[test]
+fn prepared_statements() {
+    round_trips("PREPARE q AS SELECT * FROM t WHERE a = $1");
+    round_trips("PREPARE q (INT, TEXT) AS SELECT $1, $2");
+    round_trips("EXECUTE q(1, 'a')");
+    round_trips("EXECUTE q");
+    round_trips("DEALLOCATE q");
+    round_trips("DEALLOCATE PREPARE q");
+    round_trips("DEALLOCATE ALL");
+    rejected("PREPARE q SELECT 1");
+}
+
+#[test]
+fn distinct_on() {
+    round_trips("SELECT DISTINCT ON (g) g, v FROM t ORDER BY g, v");
+    round_trips("SELECT DISTINCT ON (a, b) * FROM t");
+    rejected("SELECT DISTINCT ON g, v FROM t");
+}
+
+#[test]
+fn double_equals_is_equality() {
+    parses_to("SELECT a == 1", "SELECT a = 1");
+    parses_to("SELECT a + 1 == b AND c", "SELECT a + 1 = b AND c");
+}
+
+#[test]
+fn escape_strings() {
+    round_trips(r"SELECT E'a\nb'");
+    let value = |sql| match sqlparser::parse_expr::<DuckDb>(sql).unwrap().kind {
+        sqlparser::ast::ExprKind::Literal(sqlparser::ast::Literal::String(s)) => {
+            s.value().into_owned()
+        }
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(value(r"E'a\nb'"), "a\nb");
+    assert_eq!(value(r"'a\nb'"), r"a\nb");
+}
+
+#[test]
 fn integer_types() {
     for name in ["UTINYINT", "USMALLINT", "UBIGINT", "UHUGEINT", "HUGEINT"] {
         round_trips(&format!("SELECT 123::{name}"));
@@ -444,7 +482,7 @@ mod shape {
             panic!("no fields: {ty:?}");
         };
         assert_eq!(fields.len(), 2);
-        assert_eq!(fields[0].name.unwrap().text, "v");
+        assert_eq!(fields[0].name.as_ref().unwrap().text, "v");
         assert_eq!(fields[1].data_type.name.text, "INTEGER");
     }
 
@@ -461,7 +499,7 @@ mod shape {
         assert!(matches!(
             args[1].default,
             Some(Expr {
-                kind: ExprKind::Literal(Literal::Number("5")),
+                kind: ExprKind::Literal(Literal::Number(std::borrow::Cow::Borrowed("5"))),
                 ..
             })
         ));
@@ -605,7 +643,10 @@ mod shape {
         };
         assert!(matches!(
             args[0],
-            FunctionArg::NamedWith { operator: ":=", .. }
+            FunctionArg::NamedWith {
+                operator: std::borrow::Cow::Borrowed(":="),
+                ..
+            }
         ));
     }
 
@@ -620,8 +661,8 @@ mod shape {
     #[test]
     fn cte_records_materialization() {
         let parsed = query("WITH a AS NOT MATERIALIZED (SELECT 1) SELECT 1");
-        assert_eq!(parsed.with[0].materialized, Some(false));
+        assert_eq!(parsed.ctes()[0].materialized, Some(false));
         let parsed = query("WITH a AS (SELECT 1) SELECT 1");
-        assert_eq!(parsed.with[0].materialized, None);
+        assert_eq!(parsed.ctes()[0].materialized, None);
     }
 }

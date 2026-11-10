@@ -152,8 +152,11 @@ fn postgres_regex_operators_round_trip() {
 
 #[test]
 fn postgres_regex_operators_compare() {
-    assert_eq!(binary_op::<Postgres>("a ~ b"), BinaryOp::Named("~"));
-    assert_eq!(binary_op::<Postgres>("a + b ~ c"), BinaryOp::Named("~"));
+    assert_eq!(binary_op::<Postgres>("a ~ b"), BinaryOp::Named("~".into()));
+    assert_eq!(
+        binary_op::<Postgres>("a + b ~ c"),
+        BinaryOp::Named("~".into())
+    );
 }
 
 #[test]
@@ -204,11 +207,11 @@ fn numbered_and_named_placeholders_round_trip() {
 fn placeholders_are_their_own_node() {
     assert_eq!(
         parse_expr::<Core>("$1").unwrap(),
-        sqlparser::ast::ExprKind::<Builtin>::Placeholder("$1").into()
+        sqlparser::ast::ExprKind::<Builtin>::Placeholder("$1".into()).into()
     );
     assert_eq!(
         parse_expr::<Core>(":foo").unwrap(),
-        sqlparser::ast::ExprKind::<Builtin>::Placeholder(":foo").into()
+        sqlparser::ast::ExprKind::<Builtin>::Placeholder(":foo".into()).into()
     );
 }
 

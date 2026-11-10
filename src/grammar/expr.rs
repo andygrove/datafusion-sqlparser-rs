@@ -19,6 +19,7 @@
 
 use super::*;
 use crate::ast::ExprKind;
+use std::borrow::Cow;
 
 /// Parses an optional `FILTER (WHERE condition)` after a call.
 pub fn parse_function_filter<'a, D: Dialect>(
@@ -238,7 +239,7 @@ fn parse_frame_bound<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<FrameBoun
 pub fn parse_name_expr<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Expr<'a, D::Ext>> {
     let first = p.parse_ident()?;
     if first.quote.is_none()
-        && let Some(expr) = parse_keyword_expr(p, first)?
+        && let Some(expr) = parse_keyword_expr(p, first.clone())?
     {
         return Ok(expr);
     }
@@ -255,7 +256,7 @@ pub fn parse_name_expr<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Expr<'a
     if D::at_function_call(p) {
         if let [only] = name.parts.as_slice()
             && only.quote.is_none()
-            && let Some(expr) = parse_special_function(p, only.text)?
+            && let Some(expr) = parse_special_function(p, &only.text)?
         {
             return Ok(expr);
         }
@@ -270,7 +271,7 @@ pub fn parse_prefix<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Expr<'a, D
     match token.kind {
         TokenKind::Number => {
             p.advance();
-            Ok(ExprKind::Literal(Literal::Number(token.text)).into())
+            Ok(ExprKind::Literal(Literal::Number(token.text.into())).into())
         }
         TokenKind::String => {
             p.advance();
@@ -291,7 +292,7 @@ pub fn parse_prefix<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Expr<'a, D
                 Some(digits) => digits,
                 None => &token.text[2..token.text.len() - 1],
             };
-            Ok(ExprKind::Literal(Literal::HexString(digits)).into())
+            Ok(ExprKind::Literal(Literal::HexString(digits.into())).into())
         }
         TokenKind::DollarString => {
             p.advance();
@@ -299,11 +300,15 @@ pub fn parse_prefix<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Expr<'a, D
             let tag_len = body.find('$').unwrap_or(0);
             let tag = &body[..tag_len];
             let text = &body[tag_len + 1..body.len() - tag_len - 2];
-            Ok(ExprKind::Literal(Literal::DollarQuoted { tag, text }).into())
+            Ok(ExprKind::Literal(Literal::DollarQuoted {
+                tag: tag.into(),
+                text: text.into(),
+            })
+            .into())
         }
         TokenKind::Placeholder => {
             p.advance();
-            Ok(ExprKind::Placeholder(token.text).into())
+            Ok(ExprKind::Placeholder(token.text.into()).into())
         }
         TokenKind::Word if p.at_keyword("CAST") && p.peek_nth(1).text == "(" => {
             p.advance();
@@ -585,10 +590,10 @@ pub fn parse_interval_with<'a, D: Dialect>(
 
     Ok(ExprKind::Interval(Box::new(Interval {
         value,
-        leading_field,
-        leading_precision,
-        last_field,
-        fractional_seconds_precision,
+        leading_field: leading_field.map(Cow::Borrowed),
+        leading_precision: leading_precision.map(Cow::Borrowed),
+        last_field: last_field.map(Cow::Borrowed),
+        fractional_seconds_precision: fractional_seconds_precision.map(Cow::Borrowed),
     }))
     .into())
 }
@@ -622,7 +627,7 @@ fn call_has_keyword<'a, D: Dialect>(p: &Parser<'a, D>, words: &[&str]) -> bool {
 /// functions unless their keywords are present.
 fn parse_special_function<'a, D: Dialect>(
     p: &mut Parser<'a, D>,
-    name: &'a str,
+    name: &str,
 ) -> PResult<Option<Expr<'a, D::Ext>>> {
     let eq = |word: &str| name.eq_ignore_ascii_case(word);
     let special = if eq("EXTRACT") && call_has_keyword(p, &["FROM"]) {
@@ -630,7 +635,10 @@ fn parse_special_function<'a, D: Dialect>(
         let field = D::parse_extract_field(p)?;
         p.expect_keyword("FROM")?;
         let expr = p.parse_expr()?;
-        SpecialExpr::Extract { field, expr }
+        SpecialExpr::Extract {
+            field: field.into(),
+            expr,
+        }
     } else if (eq("CEIL") || eq("FLOOR")) && call_has_keyword(p, &["TO"]) {
         p.advance();
         let expr = p.parse_expr()?;
@@ -639,7 +647,7 @@ fn parse_special_function<'a, D: Dialect>(
         SpecialExpr::Round {
             ceil: eq("CEIL"),
             expr,
-            field,
+            field: field.into(),
         }
     } else if eq("POSITION") && call_has_keyword(p, &["IN"]) {
         p.advance();
@@ -1159,7 +1167,7 @@ pub fn parse_odbc_escape<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Expr<
     let expr = p.parse_expr()?;
     p.expect_op("}")?;
     Ok(special(SpecialExpr::OdbcEscape {
-        kind: token.text,
+        kind: token.text.into(),
         expr,
     }))
 }
@@ -1338,7 +1346,7 @@ pub fn infix_rule<'a, D: Dialect>(p: &Parser<'a, D>) -> Option<InfixRule<'a, D>>
             return Some(InfixRule::custom(prec::COMPARE, parse_similar));
         }
         TokenKind::Word if token.text.eq_ignore_ascii_case("OVERLAPS") => {
-            (prec::COMPARE, BinaryOp::Named("OVERLAPS"))
+            (prec::COMPARE, BinaryOp::Named("OVERLAPS".into()))
         }
         TokenKind::Word
             if token.text.eq_ignore_ascii_case("AT")

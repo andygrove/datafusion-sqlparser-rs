@@ -161,7 +161,7 @@ fn select_into_table() {
     );
     let tree = statement::<sqlparser::dialect::Postgres>("SELECT a INTO TEMP TABLE t FROM s");
     let into = select_of(&tree).into.as_deref().expect("an INTO clause");
-    assert_eq!(into.modifier, Some("TEMP"));
+    assert_eq!(into.modifier.as_deref(), Some("TEMP"));
     assert!(into.table_keyword);
     assert_eq!(into.targets.len(), 1);
 }
@@ -470,7 +470,7 @@ fn cte_column_lists() {
     let StatementKind::Query(query) = statement::<sqlparser::dialect::Postgres>(sql).kind else {
         panic!("not a query");
     };
-    assert_eq!(query.with[0].columns.len(), 2);
+    assert_eq!(query.ctes()[0].columns.len(), 2);
 }
 
 #[test]

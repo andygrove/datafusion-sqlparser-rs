@@ -146,7 +146,7 @@ impl Dialect for Acme {
         let distance = p.peek().text;
         p.advance();
         Ok(Some(Join {
-            kind: JoinKind::Custom("NEAR JOIN"),
+            kind: JoinKind::Custom("NEAR JOIN".into()),
             spelled_out: false,
             table,
             constraint: JoinConstraint::Ext(Within { distance }),
@@ -622,7 +622,10 @@ fn custom_join_builds_custom_nodes_and_renders() {
     let SetExpr::Select(select) = &query.body else {
         panic!("not a select");
     };
-    assert_eq!(select.from[0].joins[0].kind, JoinKind::Custom("NEAR JOIN"));
+    assert_eq!(
+        select.from[0].joins[0].kind,
+        JoinKind::Custom("NEAR JOIN".into())
+    );
 }
 
 #[cfg(feature = "visitor")]

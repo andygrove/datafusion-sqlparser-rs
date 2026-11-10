@@ -360,7 +360,7 @@ fn use_keeps_its_object_kind() {
     else {
         panic!("expected USE");
     };
-    assert_eq!(kind, Some("ROLE"));
+    assert_eq!(kind.as_deref(), Some("ROLE"));
 }
 
 #[test]

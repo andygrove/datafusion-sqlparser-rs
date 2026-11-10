@@ -146,7 +146,7 @@ fn spans_are_ignored_by_equality() {
 
 #[test]
 fn a_node_built_by_hand_has_an_empty_span() {
-    let expr: Expr<'_, Builtin> = ExprKind::Placeholder("$1").into();
+    let expr: Expr<'_, Builtin> = ExprKind::Placeholder("$1".into()).into();
     assert_eq!(expr.span, Span::default());
 }
 

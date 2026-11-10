@@ -18,6 +18,7 @@
 //! MySQL.
 
 use crate::ast::Span;
+use std::borrow::Cow;
 use std::fmt::{self, Write as _};
 
 use crate::PResult;
@@ -54,7 +55,7 @@ pub struct MySql;
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -91,7 +92,7 @@ pub enum MySqlExpr<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -105,7 +106,6 @@ pub struct MySqlConvert<'a, X: AstExt> {
 /// A character set introducer and the literal it applies to.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct MySqlIntroduced<'a> {
     pub charset: Ident<'a>,
@@ -329,7 +329,7 @@ fn parse_string_collation<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Obje
     let quote = char::from(token.text.as_bytes()[0]);
     Ok(ObjectName {
         parts: vec![Ident {
-            text: &token.text[1..token.text.len() - 1],
+            text: Cow::Borrowed(&token.text[1..token.text.len() - 1]),
             quote: Some(quote),
             span: token.span,
         }],
@@ -368,7 +368,7 @@ where
     } else if p.at_keyword("COLLATE") && p.peek_nth(1).kind == TokenKind::String {
         Some(InfixRule::custom(prec::POSTFIX, parse_collate_string))
     } else if p.at_keyword("XOR") {
-        Some(InfixRule::binary(XOR, BinaryOp::Named("XOR")))
+        Some(InfixRule::binary(XOR, BinaryOp::Named("XOR".into())))
     } else if at_regexp(p, 0) || (p.at_keyword("NOT") && at_regexp(p, 1)) {
         Some(InfixRule::custom(prec::COMPARE, parse_regexp))
     } else if p.at_op("<<") {
@@ -376,11 +376,17 @@ where
     } else if p.at_op(">>") {
         Some(InfixRule::binary(prec::BIT_XOR, BinaryOp::ShiftRight))
     } else if p.at_op("<=>") {
-        Some(InfixRule::binary(prec::COMPARE, BinaryOp::Named("<=>")))
+        Some(InfixRule::binary(
+            prec::COMPARE,
+            BinaryOp::Named("<=>".into()),
+        ))
     } else if p.at_op("->") {
-        Some(InfixRule::binary(prec::OTHER, BinaryOp::Named("->")))
+        Some(InfixRule::binary(prec::OTHER, BinaryOp::Named("->".into())))
     } else if p.at_op("->>") {
-        Some(InfixRule::binary(prec::OTHER, BinaryOp::Named("->>")))
+        Some(InfixRule::binary(
+            prec::OTHER,
+            BinaryOp::Named("->>".into()),
+        ))
     } else {
         grammar::infix_rule(p)
     }
@@ -402,7 +408,7 @@ fn parse_assignment_expr<'a, D: Dialect>(
     let right = p.parse_expr_bp(bp - 1)?;
     Ok(ExprKind::Binary {
         left: Box::new(left),
-        op: BinaryOp::Named(":="),
+        op: BinaryOp::Named(":=".into()),
         right: Box::new(right),
     }
     .into())
@@ -441,10 +447,10 @@ pub fn parse_regexp<'a, D: Dialect>(
 ) -> PResult<Expr<'a, D::Ext>> {
     let negated = p.eat_keyword("NOT");
     let kind = if p.eat_keyword("REGEXP") {
-        LikeKind::Named("REGEXP")
+        LikeKind::Named("REGEXP".into())
     } else {
         p.expect_keyword("RLIKE")?;
-        LikeKind::Named("RLIKE")
+        LikeKind::Named("RLIKE".into())
     };
     grammar::parse_like_operand(p, left, negated, kind)
 }
@@ -551,7 +557,7 @@ where
             ty: Box::new(DataType {
                 qualifier: Vec::new(),
                 name: Ident {
-                    text: "BINARY",
+                    text: "BINARY".into(),
                     quote: None,
                     span: keyword.span,
                 },
@@ -667,9 +673,9 @@ fn parse_table_setting<'a, D: Dialect>(
     }
     p.advance();
     Ok(AlterTableOp::Setting {
-        name,
+        name: name.into(),
         equals,
-        value: token.text,
+        value: token.text.into(),
     })
 }
 
@@ -708,7 +714,7 @@ pub fn parse_alter_table_op<'a, D: Dialect>(
         p.advance();
         p.advance();
         p.expect_keyword("KEY")?;
-        return Ok(AlterTableOp::Phrase("DROP PRIMARY KEY"));
+        return Ok(AlterTableOp::Phrase("DROP PRIMARY KEY".into()));
     }
     if p.at_keyword("DROP") && next.is_word("FOREIGN") {
         p.advance();
@@ -716,7 +722,7 @@ pub fn parse_alter_table_op<'a, D: Dialect>(
         p.expect_keyword("KEY")?;
         let name = p.parse_ident()?;
         return Ok(AlterTableOp::PhraseName {
-            phrase: "DROP FOREIGN KEY",
+            phrase: "DROP FOREIGN KEY".into(),
             name,
         });
     }
@@ -725,7 +731,7 @@ pub fn parse_alter_table_op<'a, D: Dialect>(
         p.advance();
         let name = p.parse_ident()?;
         return Ok(AlterTableOp::PhraseName {
-            phrase: "DROP INDEX",
+            phrase: "DROP INDEX".into(),
             name,
         });
     }
@@ -813,7 +819,10 @@ pub fn parse_column_option<'a, D: Dialect>(
     p: &mut Parser<'a, D>,
 ) -> PResult<Option<ColumnOption<'a, D::Ext>>> {
     let next = p.peek_nth(1);
-    let keyword = |keyword: &'static str, expr| ColumnOption::Keyword { keyword, expr };
+    let keyword = |keyword: &'static str, expr| ColumnOption::Keyword {
+        keyword: keyword.into(),
+        expr,
+    };
     if p.eat_keyword("AUTO_INCREMENT") {
         return Ok(Some(ColumnOption::AutoIncrement));
     }
@@ -823,7 +832,7 @@ pub fn parse_column_option<'a, D: Dialect>(
         let name = p.parse_name_part()?;
         return Ok(Some(keyword(
             "CHARACTER SET",
-            Some(Expr::new(ExprKind::Ident(name), name.span)),
+            Some(Expr::new(ExprKind::Ident(name.clone()), name.span)),
         )));
     }
     if p.at_keyword("COMMENT") && next.kind == TokenKind::String {
@@ -886,7 +895,7 @@ pub fn parse_data_type<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<DataTyp
     if is_list {
         let name = plain_name(p.advance());
         p.expect_op("(")?;
-        let args = p.parse_comma_separated(parse_string_text)?;
+        let args = p.parse_comma_separated(|p| parse_string_text(p).map(Cow::Borrowed))?;
         p.expect_op(")")?;
         return Ok(DataType {
             qualifier: Vec::new(),
@@ -920,7 +929,7 @@ pub fn parse_data_type<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<DataTyp
         return Err(p.expected("a data type"));
     }
     let mut ty = grammar::parse_data_type(p)?;
-    if !is_numeric_type(ty.name.text) {
+    if !is_numeric_type(&ty.name.text) {
         return Ok(ty);
     }
     let unsigned = if p.eat_keyword("UNSIGNED") {
@@ -964,7 +973,7 @@ fn is_numeric_type(name: &str) -> bool {
 
 fn plain_name<'a>(token: Token<'a>) -> Ident<'a> {
     Ident {
-        text: token.text,
+        text: token.text.into(),
         quote: None,
         span: token.span,
     }
@@ -1147,7 +1156,7 @@ impl Dialect for MySql {
             .find(|word| p.eat_keyword(word));
         Ok(BuiltinInsert {
             ignore: p.eat_keyword("IGNORE"),
-            priority,
+            priority: priority.map(Cow::Borrowed),
             ..Default::default()
         })
     }
@@ -1198,7 +1207,7 @@ pub fn string_literal(token: Token<'_>) -> StringLiteral<'_> {
         _ => (StringPrefix::None, false, text),
     };
     StringLiteral {
-        text: &body[1..body.len() - 1],
+        text: Cow::Borrowed(&body[1..body.len() - 1]),
         quote: char::from(body.as_bytes()[0]),
         backslash_escapes: prefix == StringPrefix::None,
         national,
@@ -1309,7 +1318,7 @@ impl<X: AstExt> fmt::Display for MySqlConvert<'_, X> {
 /// Reads a string as a name, for places that take either.
 fn string_ident<'a>(token: Token<'a>) -> Ident<'a> {
     Ident {
-        text: &token.text[1..token.text.len() - 1],
+        text: Cow::Borrowed(&token.text[1..token.text.len() - 1]),
         quote: token.text.chars().next(),
         span: token.span,
     }
@@ -1533,7 +1542,7 @@ fn parse_trailing_limit<'a, D: Dialect>(
 /// Parses a name in `GRANT ... ON`, which can be `*`, `*.*` or `db.*`.
 pub fn parse_grant_name<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<GrantName<'a>> {
     let star = |span| Ident {
-        text: "*",
+        text: "*".into(),
         quote: None,
         span,
     };
@@ -1599,7 +1608,7 @@ pub fn parse_user_host<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Grantee
         // `user@host` lexes `@host` as a variable.
         let token = p.advance();
         grantee.host = Some(Ident {
-            text: &token.text[1..],
+            text: Cow::Borrowed(&token.text[1..]),
             quote: None,
             span: token.span,
         });
@@ -1688,9 +1697,9 @@ fn parse_index_hint<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Option<MyS
     };
     p.expect_op(")")?;
     Ok(Some(MySqlIndexHint {
-        verb,
+        verb: verb.into(),
         key,
-        target,
+        target: target.map(Cow::Borrowed),
         names,
     }))
 }
@@ -1701,7 +1710,7 @@ pub fn parse_join<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Option<Join<
         let table = p.parse_table_ref()?;
         let constraint = grammar::parse_join_constraint(p)?;
         return Ok(Some(Join {
-            kind: JoinKind::Custom("STRAIGHT_JOIN"),
+            kind: JoinKind::Custom("STRAIGHT_JOIN".into()),
             spelled_out: false,
             table,
             constraint,

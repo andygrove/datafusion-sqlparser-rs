@@ -50,8 +50,8 @@ This crate is not ready to replace v1, and its API will change.
 | `derive-dialect` | Yes | Missing | Building on another dialect takes one forwarding method per rule. |
 | Render to SQL | `Display` | Done | |
 | Pretty-printing | `{:#}` | Done | Some statements differ from v1. `MERGE`, `CREATE INDEX` and `EXPLAIN` are multi-line here. |
-| `visitor` feature | Yes | Done | `VisitorMut` replacement strings must outlive the AST. |
-| `serde` feature | Yes | Done | `Deserialize` borrows from the input. Strings with JSON escapes need `deserialize_with_arena`. |
+| `visitor` feature | Yes | Done | `VisitorMut` can store owned or borrowed replacement text. |
+| `serde` feature | Yes | Done | `Deserialize` gives owned strings, so the tree outlives its input. |
 | Source spans | Partial | Partial | Here: identifiers, expressions, statements, select items and table references, recorded while parsing as byte offsets. v1 covers more node types, with many empty or approximate spans. |
 | Comments | `parse_sql_with_comments` | Done | A comment at the end of a line goes with the code before it. |
 | Trailing commas option | `ParserOptions` | By dialect | Set by each dialect's rules, with no runtime switch. |
@@ -184,7 +184,7 @@ dialect, with the same rendering apart from case and spacing.
 | `COPY` | 61 | 54 | 88.5% |
 | `USE` | 54 | 52 | 96.3% |
 | `UPDATE` | 33 | 31 | 93.9% |
-| `WITH` | 27 | 25 | 92.6% |
+| `WITH` | 27 | 26 | 96.3% |
 | `MERGE` | 25 | 25 | 100.0% |
 | `DELETE` | 21 | 20 | 95.2% |
 
@@ -258,8 +258,9 @@ This list is not complete.
 - **The real database wins.** Where v1's mode and the actual engine differ, this
   crate follows the engine. These cases are recorded in `known_failures`, and
   `AGENTS.md` lists them.
-- **The AST borrows from the SQL.** Nodes hold `&str`, so the SQL text must
-  outlive the AST. See [Design decisions](../README.md#design-decisions).
+- **The AST borrows from the SQL.** The parser fills `Cow` strings with slices of
+  the SQL, so the SQL text must outlive a parsed AST. See
+  [Design decisions](../README.md#design-decisions).
 - **Node shapes differ.** `Expr`, `Statement` and `SelectItem` are structs holding
   a `kind` and a `span`.
 
@@ -271,14 +272,14 @@ syntax at each step, so expect the timing gap to narrow.
 
 | Query | v1 time | v2 time | Faster | v1 allocations | v2 allocations | v1 bytes | v2 bytes |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| `simple_select` | 2.24 µs | 468 ns | 4.8x | 39 | 9 | 18,989 | 2,032 |
-| `with_select` | 11.6 µs | 1.99 µs | 5.9x | 168 | 21 | 87,804 | 7,640 |
-| `select_100_columns` | 55.1 µs | 10.6 µs | 5.2x | 1,222 | 13 | 347,434 | 38,720 |
-| `select_100_qualified_columns` | 87.4 µs | 15.0 µs | 5.8x | 2,142 | 120 | 910,680 | 72,448 |
-| `subqueries_and_union` | 22.6 µs | 4.03 µs | 5.6x | 319 | 51 | 201,146 | 12,680 |
-| `insert_update_delete_create` | 19.0 µs | 3.39 µs | 5.6x | 257 | 36 | 146,773 | 10,224 |
-| `expressions_and_casts` | 419 µs | 94.1 µs | 4.4x | 8,052 | 1,116 | 1,808,004 | 293,488 |
-| `large_statement` | 3.49 ms | 704 µs | 5.0x | 70,959 | 7,032 | 21,539,624 | 2,115,928 |
+| `simple_select` | 2.21 µs | 492 ns | 4.5x | 39 | 9 | 18,989 | 2,056 |
+| `with_select` | 11.7 µs | 1.99 µs | 5.9x | 168 | 22 | 87,804 | 7,856 |
+| `select_100_columns` | 55.3 µs | 9.36 µs | 5.9x | 1,222 | 13 | 347,434 | 40,760 |
+| `select_100_qualified_columns` | 87.1 µs | 14.0 µs | 6.2x | 2,142 | 120 | 910,680 | 76,216 |
+| `subqueries_and_union` | 22.6 µs | 4.01 µs | 5.6x | 319 | 52 | 201,146 | 13,032 |
+| `insert_update_delete_create` | 18.8 µs | 3.49 µs | 5.4x | 257 | 36 | 146,773 | 10,680 |
+| `expressions_and_casts` | 408 µs | 87.7 µs | 4.7x | 8,052 | 1,116 | 1,808,004 | 300,776 |
+| `large_statement` | 3.50 ms | 689 µs | 5.1x | 70,959 | 7,032 | 21,539,624 | 2,180,648 |
 
 ## Reproducing these numbers
 

@@ -18,6 +18,7 @@
 //! ClickHouse: its query clauses, table engines and administrative statements.
 
 use crate::ast::Span;
+use std::borrow::Cow;
 use std::fmt;
 
 use crate::PResult;
@@ -51,7 +52,6 @@ pub struct ClickHouse;
 /// Statements only ClickHouse has, and forms of common ones with its clauses.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -60,8 +60,8 @@ pub struct ClickHouse;
 pub enum ClickHouseStatement<'a> {
     /// `KILL [CONNECTION | QUERY | MUTATION] id`
     Kill {
-        kind: Option<&'a str>,
-        id: &'a str,
+        kind: Option<Cow<'a, str>>,
+        id: Cow<'a, str>,
     },
     Optimize(Box<ClickHouseOptimize<'a>>),
     TruncateOnCluster(Box<ClickHouseTruncate<'a>>),
@@ -76,7 +76,6 @@ pub enum ClickHouseStatement<'a> {
 /// `OPTIMIZE TABLE name ...`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -94,7 +93,6 @@ pub struct ClickHouseOptimize<'a> {
 /// `PARTITION expr` or `PARTITION ID 'name'`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -107,7 +105,6 @@ pub enum ClickHouseOptimizePartition<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -121,7 +118,6 @@ pub enum Deduplicate<'a> {
 /// `ALTER TABLE` with clauses the core does not have.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -138,7 +134,6 @@ pub struct ClickHouseAlterTable<'a> {
 /// An operation of `ALTER TABLE`: a core one or one only ClickHouse has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -177,7 +172,6 @@ pub enum ClickHouseAlterOp<'a> {
 /// `ADD PROJECTION [IF NOT EXISTS] name (SELECT ...)`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -194,7 +188,6 @@ pub struct ClickHouseProjection<'a> {
 /// `PARTITION expr` or `PART expr`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -208,7 +201,6 @@ pub struct ClickHousePartition<'a> {
 /// A single sorting key expression, or a list of them in parentheses.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -222,7 +214,6 @@ pub enum ClickHouseSortingKey<'a> {
 /// `CREATE TABLE` with clauses the core does not have.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -231,20 +222,19 @@ pub enum ClickHouseSortingKey<'a> {
 pub struct ClickHouseCreateTable<'a> {
     pub table: CreateTable<'a, Builtin>,
     /// `LOCAL` or `GLOBAL`, written before `TEMPORARY`.
-    pub scope: Option<&'a str>,
+    pub scope: Option<Cow<'a, str>>,
     pub on_cluster: Option<Ident<'a>>,
     pub engine: Option<ClickHouseEngine<'a>>,
     pub primary_key: Option<Expr<'a, Builtin>>,
     pub order_by: Option<ClickHouseSortingKey<'a>>,
     pub partition_by: Option<Expr<'a, Builtin>>,
     /// `DELETE ROWS`, `PRESERVE ROWS` or `DROP`.
-    pub on_commit: Option<&'a str>,
+    pub on_commit: Option<Cow<'a, str>>,
 }
 
 /// `ENGINE = name [(args)]`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct ClickHouseEngine<'a> {
     pub name: Ident<'a>,
@@ -255,7 +245,6 @@ pub struct ClickHouseEngine<'a> {
 /// `CREATE [MATERIALIZED] VIEW` with typed columns or a target table.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -276,7 +265,6 @@ pub struct ClickHouseCreateView<'a> {
 /// `INSERT` into a table function, or with `SETTINGS` or `FORMAT`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -293,7 +281,6 @@ pub struct ClickHouseInsert<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -308,7 +295,6 @@ pub enum ClickHouseInsertTarget<'a> {
 /// `FORMAT name [values]`, in an `INSERT`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -322,7 +308,6 @@ pub struct ClickHouseInputFormat<'a> {
 /// `UPDATE` with `ON CLUSTER` or `SETTINGS`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -339,7 +324,6 @@ pub struct ClickHouseUpdate<'a> {
 /// `DELETE` with `ON CLUSTER` or `SETTINGS`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -355,7 +339,6 @@ pub struct ClickHouseDelete<'a> {
 /// `name = value`, in a `SETTINGS` clause.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -369,7 +352,6 @@ pub struct ClickHouseSetting<'a> {
 /// The name in a `FORMAT` clause of a query.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum ClickHouseFormat<'a> {
     Name(Ident<'a>),
@@ -379,7 +361,6 @@ pub enum ClickHouseFormat<'a> {
 /// `SETTINGS` and `FORMAT`, at the end of a query.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -393,7 +374,6 @@ pub struct ClickHouseQueryClauses<'a> {
 /// `WITH FILL` and `INTERPOLATE`, after an `ORDER BY` item.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -407,7 +387,6 @@ pub struct ClickHouseOrderByItem<'a> {
 /// `TRUNCATE ... ON CLUSTER name`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct ClickHouseTruncate<'a> {
     pub truncate: Truncate<'a>,
@@ -417,7 +396,6 @@ pub struct ClickHouseTruncate<'a> {
 /// `WITH FILL [FROM x] [TO y] [STEP z]`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -433,7 +411,6 @@ pub struct ClickHouseWithFill<'a> {
 /// parentheses are left out, and empty for `INTERPOLATE ()`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -446,7 +423,6 @@ pub struct ClickHouseInterpolate<'a> {
 /// Expression syntax only ClickHouse has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -456,7 +432,7 @@ pub enum ClickHouseExpr<'a> {
     /// `expr.1`, written `expr . 1` when rendered.
     TupleElement {
         expr: Box<Expr<'a, Builtin>>,
-        index: &'a str,
+        index: Cow<'a, str>,
     },
     /// `[a, b]`
     Array(Vec<Expr<'a, Builtin>>),
@@ -474,7 +450,6 @@ pub enum ClickHouseExpr<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -488,7 +463,6 @@ pub struct ClickHouseGlobalIn<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -501,7 +475,6 @@ pub enum ClickHouseInTarget<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -515,7 +488,6 @@ pub struct ClickHouseTypedLambda<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -734,7 +706,7 @@ fn parse_name_or_string<'a, D: Dialect<Ext = Builtin>>(
     }
     p.advance();
     Ok(Ident {
-        text: &token.text[1..token.text.len() - 1],
+        text: Cow::Borrowed(&token.text[1..token.text.len() - 1]),
         quote: Some('\''),
         span: token.span,
     })
@@ -866,7 +838,7 @@ fn parse_name_before_tuple_index<'a, D: Dialect<Ext = Builtin>>(
     p: &mut Parser<'a, D>,
 ) -> PResult<Expr<'a, Builtin>> {
     let first = p.parse_ident()?;
-    let mut parts = vec![first];
+    let mut parts = vec![first.clone()];
     while p.at_op(".") && p.peek_nth(1).kind != TokenKind::Number {
         p.advance();
         parts.push(p.parse_name_part()?);
@@ -911,7 +883,7 @@ fn parse_tuple_element<'a, D: Dialect<Ext = Builtin>>(
     p.deepen_by(EXT_LEVELS)?;
     Ok(ext(ClickHouseExpr::TupleElement {
         expr: Box::new(left),
-        index: token.text,
+        index: token.text.into(),
     }))
 }
 
@@ -1401,7 +1373,7 @@ fn parse_array_join_kind<'a, D: Dialect>(p: &mut Parser<'a, D>) -> Option<JoinKi
     for _ in 0..words {
         p.advance();
     }
-    Some(JoinKind::Custom(kind))
+    Some(JoinKind::Custom(kind.into()))
 }
 
 /// The keywords of a join after `GLOBAL`, which renders before them.
@@ -1435,7 +1407,7 @@ pub fn parse_join<'a, D: Dialect<Ext = Builtin>>(
         let Some(kind) = global_join_kind(join.kind, join.spelled_out) else {
             return Err(p.expected("a join type that GLOBAL can modify"));
         };
-        join.kind = JoinKind::Custom(kind);
+        join.kind = JoinKind::Custom(kind.into());
         join.spelled_out = false;
         return Ok(Some(join));
     }
@@ -1699,17 +1671,21 @@ fn parse_type_arguments<'a, D: Dialect<Ext = Builtin>>(
         data_type.angle = Some(Box::new(AngleArguments::ParenFields(fields)));
         return Ok(data_type);
     }
-    data_type.args = p.parse_comma_separated(|p| {
-        let token = p.peek();
-        if !matches!(
-            token.kind,
-            TokenKind::Number | TokenKind::String | TokenKind::Word | TokenKind::QuotedIdent
-        ) {
-            return Err(p.expected("a type modifier"));
-        }
-        p.advance();
-        Ok(token.text)
-    })?;
+    data_type.args = p
+        .parse_comma_separated(|p| {
+            let token = p.peek();
+            if !matches!(
+                token.kind,
+                TokenKind::Number | TokenKind::String | TokenKind::Word | TokenKind::QuotedIdent
+            ) {
+                return Err(p.expected("a type modifier"));
+            }
+            p.advance();
+            Ok(token.text)
+        })?
+        .into_iter()
+        .map(Cow::Borrowed)
+        .collect();
     p.expect_op(")")?;
     Ok(data_type)
 }
@@ -1760,10 +1736,13 @@ pub fn parse_data_type<'a, D: Dialect<Ext = Builtin>>(
     let canonical = written
         .quote
         .is_none()
-        .then(|| canonical_type_name(written.text))
+        .then(|| canonical_type_name(&written.text))
         .flatten();
     let name = match canonical {
-        Some(text) => Ident { text, ..written },
+        Some(text) => Ident {
+            text: text.into(),
+            ..written
+        },
         None => written,
     };
     match canonical {
@@ -1788,7 +1767,7 @@ pub fn parse_column_option<'a, D: Dialect<Ext = Builtin>>(
         if p.eat_keyword(keyword) {
             let expr = parse_expr(p)?;
             return Ok(Some(ColumnOption::Keyword {
-                keyword,
+                keyword: keyword.into(),
                 expr: Some(expr),
             }));
         }
@@ -1800,7 +1779,7 @@ pub fn parse_column_option<'a, D: Dialect<Ext = Builtin>>(
             Some(parse_expr(p)?)
         };
         return Ok(Some(ColumnOption::Keyword {
-            keyword: "EPHEMERAL",
+            keyword: "EPHEMERAL".into(),
             expr,
         }));
     }
@@ -1947,13 +1926,13 @@ fn parse_create_table<'a, D: Dialect<Ext = Builtin>>(
     Ok(statement(ClickHouseStatement::CreateTable(Box::new(
         ClickHouseCreateTable {
             table,
-            scope: head.scope,
+            scope: head.scope.map(Cow::Borrowed),
             on_cluster,
             engine,
             primary_key,
             order_by,
             partition_by,
-            on_commit,
+            on_commit: on_commit.map(Cow::Borrowed),
         },
     ))))
 }
@@ -2241,7 +2220,10 @@ fn parse_kill<'a, D: Dialect<Ext = Builtin>>(
         .into_iter()
         .find(|kind| p.eat_keyword(kind));
     let id = grammar::parse_number(p)?;
-    Ok(ClickHouseStatement::Kill { kind, id })
+    Ok(ClickHouseStatement::Kill {
+        kind: kind.map(Cow::Borrowed),
+        id: id.into(),
+    })
 }
 
 fn parse_optimize<'a, D: Dialect<Ext = Builtin>>(
@@ -2859,7 +2841,7 @@ impl fmt::Display for ClickHouseCreateTable<'_> {
         if table.or_replace {
             f.write_str("OR REPLACE ")?;
         }
-        if let Some(scope) = self.scope {
+        if let Some(ref scope) = self.scope {
             write!(f, "{scope} ")?;
         }
         if table.temporary {
@@ -2884,7 +2866,7 @@ impl fmt::Display for ClickHouseCreateTable<'_> {
         if let Some(partition_by) = &self.partition_by {
             write!(f, " PARTITION BY {partition_by}")?;
         }
-        if let Some(on_commit) = self.on_commit {
+        if let Some(ref on_commit) = self.on_commit {
             write!(f, " ON COMMIT {on_commit}")?;
         }
         if let Some(query) = &table.query {

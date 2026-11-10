@@ -374,14 +374,17 @@ mod shape {
         assert!(!parenthesized);
         assert_eq!(into.len(), 2);
         assert_eq!(using.len(), 2);
-        assert_eq!(using[0].alias.map(|alias| alias.text), Some("x"));
+        assert_eq!(
+            using[0].alias.as_ref().map(|alias| alias.text.as_ref()),
+            Some("x")
+        );
         assert!(using[1].alias.is_none());
     }
 
     #[test]
     fn plain_top_uses_the_shared_field() {
         let select = select("SELECT TOP 3 DISTINCT a FROM t");
-        assert_eq!(select.modifiers.top, Some("3"));
+        assert_eq!(select.modifiers.top.as_deref(), Some("3"));
         assert!(select.modifiers.teradata_top.is_none());
     }
 
@@ -396,7 +399,10 @@ mod shape {
 
         let select = crate::shape::select("SELECT TOP 5 WITH TIES b FROM t");
         let top = select.modifiers.teradata_top.as_ref().unwrap();
-        assert!(matches!(top.quantity, TeradataTopQuantity::Number("5")));
+        assert!(matches!(
+            top.quantity,
+            TeradataTopQuantity::Number(std::borrow::Cow::Borrowed("5"))
+        ));
         assert!(!top.percent);
     }
 

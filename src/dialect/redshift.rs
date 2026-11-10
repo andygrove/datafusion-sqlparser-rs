@@ -18,6 +18,7 @@
 //! Amazon Redshift, built on the PostgreSQL rules.
 
 use crate::ast::Span;
+use std::borrow::Cow;
 use std::fmt;
 
 use crate::PResult;
@@ -44,7 +45,6 @@ pub struct Redshift;
 /// Statements only Redshift has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -59,7 +59,6 @@ pub enum RedshiftStatement<'a> {
 /// statement is the core [`CreateTable`].
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -70,7 +69,7 @@ pub struct RedshiftCreateTable<'a> {
     /// `Some(true)` for `BACKUP YES`, `Some(false)` for `BACKUP NO`.
     pub backup: Option<bool>,
     /// `AUTO`, `EVEN`, `KEY` or `ALL`.
-    pub diststyle: Option<&'a str>,
+    pub diststyle: Option<Cow<'a, str>>,
     pub distkey: Option<Expr<'a, Builtin>>,
     pub sortkey: Vec<Expr<'a, Builtin>>,
 }
@@ -78,7 +77,6 @@ pub struct RedshiftCreateTable<'a> {
 /// `VACUUM [options] [table [TO n PERCENT] [BOOST]]`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct Vacuum<'a> {
     pub full: bool,
@@ -89,14 +87,13 @@ pub struct Vacuum<'a> {
     #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
     pub table: Option<ObjectName<'a>>,
     /// The number in `TO n PERCENT`.
-    pub threshold: Option<&'a str>,
+    pub threshold: Option<Cow<'a, str>>,
     pub boost: bool,
 }
 
 /// Expressions only Redshift has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -110,7 +107,6 @@ pub enum RedshiftExpr<'a> {
 /// PartiQL table references.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -280,7 +276,7 @@ fn parse_create_table_statement<'a, D: Dialect<Ext = Builtin>>(
         RedshiftCreateTable {
             table,
             backup,
-            diststyle,
+            diststyle: diststyle.map(Cow::Borrowed),
             distkey,
             sortkey,
         },
@@ -325,7 +321,7 @@ fn parse_vacuum<'a, D: Dialect<Ext = Builtin>>(
         reindex,
         recluster,
         table,
-        threshold,
+        threshold: threshold.map(Cow::Borrowed),
         boost,
     }))))
 }
@@ -463,7 +459,7 @@ impl fmt::Display for RedshiftStatement<'_> {
                     Some(false) => f.write_str(" BACKUP NO")?,
                     None => {}
                 }
-                if let Some(style) = create.diststyle {
+                if let Some(ref style) = create.diststyle {
                     write!(f, " DISTSTYLE {style}")?;
                 }
                 if let Some(key) = &create.distkey {
@@ -494,7 +490,7 @@ impl fmt::Display for RedshiftStatement<'_> {
                 if let Some(table) = &vacuum.table {
                     write!(f, " {table}")?;
                 }
-                if let Some(threshold) = vacuum.threshold {
+                if let Some(ref threshold) = vacuum.threshold {
                     write!(f, " TO {threshold} PERCENT")?;
                 }
                 if vacuum.boost {
@@ -758,7 +754,7 @@ impl Dialect for Redshift {
 
     fn infix_rule<'a>(p: &Parser<'a, Self>) -> Option<InfixRule<'a, Self>> {
         if p.at_op("#") {
-            return Some(InfixRule::binary(prec::OTHER, BinaryOp::Named("#")));
+            return Some(InfixRule::binary(prec::OTHER, BinaryOp::Named("#".into())));
         }
         postgres::infix_rule_without_null_tests(p)
     }
@@ -779,7 +775,7 @@ impl Dialect for Redshift {
         }
         let token = p.expect_kind(TokenKind::Number, "a number after TOP")?;
         Ok(BuiltinSelect {
-            top: Some(token.text),
+            top: Some(token.text.into()),
             ..BuiltinSelect::default()
         })
     }

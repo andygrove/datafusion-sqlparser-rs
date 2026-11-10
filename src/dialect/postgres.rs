@@ -21,6 +21,7 @@
 //! derived from PostgreSQL can reuse them. See [`super::redshift`].
 
 use crate::ast::Span;
+use std::borrow::Cow;
 use std::fmt;
 
 use crate::PResult;
@@ -30,9 +31,9 @@ use crate::ast::{
     CreateFlags, CreateSchema, CreateView, Cte, DataType, DataTypeSuffix, DropBehavior, DropObject,
     ExplainOption, Expr, ExprKind, FunctionArg, GeneratedKind, GeneratedStorage, Grant, Ident,
     IndexFlags, IndexStorage, Insert, InsertSource, IntervalFields, IsTest, Join, JoinConstraint,
-    JoinKind, LikeKind, Limit, Literal, ObjectName, ObjectType, OperatorName, OrderByItem,
-    Privileges, Query, SelectInto, SelectItem, SetExpr, SetStatement, SpecialExpr, Statement,
-    StatementKind, StringLiteral, StringPrefix, TableAlias, TableConstraint, TableFactor, TableRef,
+    JoinKind, LikeKind, Limit, ObjectName, ObjectType, OperatorName, OrderByItem, Privileges,
+    Query, SelectInto, SelectItem, SetExpr, SetStatement, SpecialExpr, Statement, StatementKind,
+    StringLiteral, StringPrefix, TableAlias, TableConstraint, TableFactor, TableRef,
     TableWithJoins, TypedString,
 };
 use crate::dialect::builtin::{
@@ -148,7 +149,7 @@ fn operator_rule<'a, D: Dialect>(text: &str) -> Option<InfixRule<'a, D>> {
         _ if may_start_operator(text.as_bytes()[0]) => OPERATORS
             .iter()
             .find(|(operator, _)| *operator == text)
-            .map(|(operator, bp)| InfixRule::binary(*bp, BinaryOp::Named(operator))),
+            .map(|(operator, bp)| InfixRule::binary(*bp, BinaryOp::Named((*operator).into()))),
         _ => None,
     }
 }
@@ -241,7 +242,10 @@ pub fn parse_data_type<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<DataTyp
     let name = p.parse_ident()?;
     let suffix =
         parse_interval_fields(p)?.map_or(DataTypeSuffix::None, DataTypeSuffix::IntervalFields);
-    let args = grammar::parse_optional_precision(p)?.into_iter().collect();
+    let args = grammar::parse_optional_precision(p)?
+        .into_iter()
+        .map(Cow::Borrowed)
+        .collect();
     Ok(DataType {
         qualifier,
         angle: None,
@@ -346,7 +350,7 @@ fn phrase_name<'a, D: Dialect>(
     phrase: &'static str,
 ) -> PResult<AlterTableOp<'a, D::Ext>> {
     Ok(AlterTableOp::PhraseName {
-        phrase,
+        phrase: phrase.into(),
         name: p.parse_name_part()?,
     })
 }
@@ -361,7 +365,7 @@ fn expect_row_level_security<D: Dialect>(p: &mut Parser<'_, D>) -> PResult<()> {
 fn parse_enable<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<AlterTableOp<'a, D::Ext>> {
     if p.at_keyword("ROW") {
         expect_row_level_security(p)?;
-        return Ok(AlterTableOp::Phrase("ENABLE ROW LEVEL SECURITY"));
+        return Ok(AlterTableOp::Phrase("ENABLE ROW LEVEL SECURITY".into()));
     }
     let always = p.eat_keyword("ALWAYS");
     let replica = !always && p.eat_keyword("REPLICA");
@@ -386,7 +390,7 @@ fn parse_enable<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<AlterTableOp<'
 fn parse_disable<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<AlterTableOp<'a, D::Ext>> {
     if p.at_keyword("ROW") {
         expect_row_level_security(p)?;
-        return Ok(AlterTableOp::Phrase("DISABLE ROW LEVEL SECURITY"));
+        return Ok(AlterTableOp::Phrase("DISABLE ROW LEVEL SECURITY".into()));
     }
     if p.eat_keyword("TRIGGER") {
         return phrase_name(p, "DISABLE TRIGGER");
@@ -404,13 +408,13 @@ fn parse_replica_identity<'a, D: Dialect>(
         return phrase_name(p, "REPLICA IDENTITY USING INDEX");
     }
     if p.eat_keyword("DEFAULT") {
-        return Ok(AlterTableOp::Phrase("REPLICA IDENTITY DEFAULT"));
+        return Ok(AlterTableOp::Phrase("REPLICA IDENTITY DEFAULT".into()));
     }
     if p.eat_keyword("FULL") {
-        return Ok(AlterTableOp::Phrase("REPLICA IDENTITY FULL"));
+        return Ok(AlterTableOp::Phrase("REPLICA IDENTITY FULL".into()));
     }
     p.expect_keyword("NOTHING")?;
-    Ok(AlterTableOp::Phrase("REPLICA IDENTITY NOTHING"))
+    Ok(AlterTableOp::Phrase("REPLICA IDENTITY NOTHING".into()))
 }
 
 pub fn parse_alter_table_op<'a, D: Dialect>(
@@ -425,13 +429,13 @@ pub fn parse_alter_table_op<'a, D: Dialect>(
     }
     if p.eat_keyword("FORCE") {
         expect_row_level_security(p)?;
-        return Ok(AlterTableOp::Phrase("FORCE ROW LEVEL SECURITY"));
+        return Ok(AlterTableOp::Phrase("FORCE ROW LEVEL SECURITY".into()));
     }
     if p.at_keyword("NO") && next.is_word("FORCE") {
         p.advance();
         p.advance();
         expect_row_level_security(p)?;
-        return Ok(AlterTableOp::Phrase("NO FORCE ROW LEVEL SECURITY"));
+        return Ok(AlterTableOp::Phrase("NO FORCE ROW LEVEL SECURITY".into()));
     }
     if p.eat_keyword("REPLICA") {
         return parse_replica_identity(p);
@@ -464,7 +468,7 @@ pub fn parse_alter_table_op<'a, D: Dialect>(
             p.advance();
             "SET UNLOGGED"
         };
-        return Ok(AlterTableOp::Phrase(phrase));
+        return Ok(AlterTableOp::Phrase(phrase.into()));
     }
     grammar::parse_alter_table_op(p)
 }
@@ -472,7 +476,6 @@ pub fn parse_alter_table_op<'a, D: Dialect>(
 /// Statements only PostgreSQL has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -517,7 +520,7 @@ pub enum PostgresStatement<'a> {
     AlterAggregate(Box<AlterAggregate<'a>>),
     CreateFunction(Box<CreateFunction<'a>>),
     /// The first field is `FUNCTION`, `PROCEDURE` or `ROUTINE`.
-    AlterFunction(&'a str, Box<AlterFunction<'a>>),
+    AlterFunction(Cow<'a, str>, Box<AlterFunction<'a>>),
     CreateRole(Box<CreateRole<'a>>),
     AlterRole(Box<AlterRole<'a>>),
     CreateExtension(Box<CreateExtension<'a>>),
@@ -548,7 +551,7 @@ pub enum PostgresStatement<'a> {
     CreateTable(Box<PostgresCreateTable<'a>>),
     /// `ALTER {MATERIALIZED VIEW | FOREIGN TABLE} ...`
     AlterRelation {
-        keyword: &'a str,
+        keyword: Cow<'a, str>,
         alter: Box<AlterTable<'a, Builtin>>,
     },
     AlterSchema {
@@ -583,7 +586,7 @@ pub enum PostgresStatement<'a> {
     /// `None` for `UNLISTEN *`.
     Unlisten(Option<Ident<'a>>),
     /// `DISCARD ALL`, `PLANS`, `SEQUENCES`, `TEMP` or `TEMPORARY`.
-    Discard(&'a str),
+    Discard(Cow<'a, str>),
     /// `RESET name`, `RESET ALL` or `RESET SESSION AUTHORIZATION`.
     Reset(ResetTarget<'a>),
     /// `CLOSE name`, or `CLOSE ALL` for `None`.
@@ -597,7 +600,6 @@ pub enum PostgresStatement<'a> {
 /// What `RESET` applies to.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum ResetTarget<'a> {
     All,
@@ -608,7 +610,6 @@ pub enum ResetTarget<'a> {
 /// `CREATE POLICY name ON table [AS kind] [FOR command] [TO roles] [USING (e)] [WITH CHECK (e)]`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -618,8 +619,8 @@ pub struct CreatePolicy<'a> {
     pub name: Ident<'a>,
     #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
     pub table: ObjectName<'a>,
-    pub kind: Option<&'a str>,
-    pub command: Option<&'a str>,
+    pub kind: Option<Cow<'a, str>>,
+    pub command: Option<Cow<'a, str>>,
     pub to: Vec<Ident<'a>>,
     pub using: Option<Expr<'a, Builtin>>,
     pub with_check: Option<Expr<'a, Builtin>>,
@@ -628,7 +629,6 @@ pub struct CreatePolicy<'a> {
 /// `ALTER POLICY name ON table ...`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -647,11 +647,10 @@ pub struct AlterPolicy<'a> {
 /// `[schema.]operator (left, right)`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct OperatorSignature<'a> {
     pub schema: Vec<Ident<'a>>,
-    pub operator: &'a str,
+    pub operator: Cow<'a, str>,
     pub left: DataType<'a>,
     pub right: DataType<'a>,
 }
@@ -659,7 +658,6 @@ pub struct OperatorSignature<'a> {
 /// `INSERT` with clauses the core does not have.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -670,14 +668,13 @@ pub struct PostgresInsert<'a> {
     /// The table's alias: `INSERT INTO t AS x`.
     pub alias: Option<Ident<'a>>,
     /// `OVERRIDING {SYSTEM | USER} VALUE`, holding the middle word.
-    pub overriding: Option<&'a str>,
+    pub overriding: Option<Cow<'a, str>>,
     pub on_conflict: Option<OnConflict<'a>>,
 }
 
 /// `ON CONFLICT [target] {DO NOTHING | DO UPDATE ...}`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -692,7 +689,6 @@ pub struct OnConflict<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -707,7 +703,6 @@ pub enum OnConflictTarget<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -721,7 +716,6 @@ pub struct OnConflictUpdate<'a> {
 /// Expressions only PostgreSQL has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -730,13 +724,13 @@ pub struct OnConflictUpdate<'a> {
 pub enum PostgresExpr<'a> {
     /// A prefix operator not in the core, written with its operator text.
     Prefix {
-        op: &'a str,
+        op: Cow<'a, str>,
         expr: Box<Expr<'a, Builtin>>,
     },
     /// `expr !`
     Postfix {
         expr: Box<Expr<'a, Builtin>>,
-        op: &'a str,
+        op: Cow<'a, str>,
     },
     /// A binary operator not in the core.
     Binary(Box<PostgresBinary<'a>>),
@@ -756,7 +750,6 @@ pub enum PostgresExpr<'a> {
 /// `left OPERATOR(schema.op) right`, or a custom operator written directly.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -766,13 +759,12 @@ pub struct PostgresBinary<'a> {
     pub left: Expr<'a, Builtin>,
     /// `Some` if written with `OPERATOR(...)`.
     pub qualified: Option<OperatorName<'a>>,
-    pub op: &'a str,
+    pub op: Cow<'a, str>,
     pub right: Expr<'a, Builtin>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -788,7 +780,6 @@ pub struct JsonObjectCall<'a> {
 /// A table with `ONLY` before it, or `*` after it.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct InheritedTable<'a> {
     pub only: bool,
@@ -802,7 +793,6 @@ pub struct InheritedTable<'a> {
 /// PostgreSQL's table factors.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum PostgresTableFactor<'a> {
     Inherited(InheritedTable<'a>),
@@ -811,7 +801,6 @@ pub enum PostgresTableFactor<'a> {
 /// `USING (columns) AS alias`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct PostgresUsingConstraint<'a> {
     pub columns: Vec<Ident<'a>>,
@@ -1068,7 +1057,7 @@ impl fmt::Display for PostgresStatement<'_> {
             PostgresStatement::Notify { channel, payload } => {
                 write!(f, "NOTIFY {channel}")?;
                 if let Some(payload) = payload {
-                    write!(f, ", {}", Literal::String(*payload))?;
+                    write!(f, ", {}", payload)?;
                 }
                 Ok(())
             }
@@ -1080,13 +1069,13 @@ impl fmt::Display for PostgresStatement<'_> {
             PostgresStatement::Reset(ResetTarget::Name(name)) => write!(f, "RESET {name}"),
             PostgresStatement::Close(None) => f.write_str("CLOSE ALL"),
             PostgresStatement::Close(Some(name)) => write!(f, "CLOSE {name}"),
-            PostgresStatement::Load(file) => write!(f, "LOAD {}", Literal::String(*file)),
+            PostgresStatement::Load(file) => write!(f, "LOAD {}", file),
             PostgresStatement::CreatePolicy(policy) => {
                 write!(f, "CREATE POLICY {} ON {}", policy.name, policy.table)?;
-                if let Some(kind) = policy.kind {
+                if let Some(ref kind) = policy.kind {
                     write!(f, " AS {kind}")?;
                 }
-                if let Some(command) = policy.command {
+                if let Some(ref command) = policy.command {
                     write!(f, " FOR {command}")?;
                 }
                 if !policy.to.is_empty() {
@@ -1133,7 +1122,7 @@ impl fmt::Display for PostgresInsert<'_> {
         if !insert.columns.is_empty() {
             write!(f, " ({})", comma(&insert.columns))?;
         }
-        if let Some(word) = self.overriding {
+        if let Some(ref word) = self.overriding {
             write!(f, " OVERRIDING {word} VALUE")?;
         }
         write_insert_source(f, &insert.source, !insert.columns.is_empty())?;
@@ -1171,7 +1160,7 @@ impl fmt::Display for OnConflict<'_> {
 impl fmt::Display for PostgresExpr<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            PostgresExpr::Prefix { op: "!!", expr } => write!(f, "!!{expr}"),
+            PostgresExpr::Prefix { op, expr } if op == "!!" => write!(f, "!!{expr}"),
             PostgresExpr::Prefix { op, expr } => write!(f, "{op} {expr}"),
             PostgresExpr::Postfix { expr, op } => {
                 let spaced = matches!(
@@ -1559,7 +1548,7 @@ pub fn parse_column_option<'a, D: Dialect<Ext = Builtin>>(
 /// Parses `DROP`, rejecting `CASCADE` and `RESTRICT` on roles and groups.
 pub fn parse_drop<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<DropObject<'a>> {
     let drop = grammar::parse_drop(p)?;
-    if drop.behavior.is_some() && drop.object_type == ObjectType::Named("GROUP") {
+    if drop.behavior.is_some() && drop.object_type == ObjectType::Named("GROUP".into()) {
         return Err(p.expected("end of statement after the names"));
     }
     Ok(drop)
@@ -1576,7 +1565,7 @@ pub fn parse_drop_object_type<'a, D: Dialect>(p: &mut Parser<'a, D>) -> Option<O
     if p.at_keyword("FOREIGN") && p.peek_nth(1).is_word("TABLE") {
         p.advance();
         p.advance();
-        return Some(ObjectType::Named("FOREIGN TABLE"));
+        return Some(ObjectType::Named("FOREIGN TABLE".into()));
     }
     grammar::eat_drop_object_type(
         p,
@@ -1680,7 +1669,7 @@ fn parse_typed_string<'a, D: Dialect<Ext = Builtin>>(
         let tag_len = body.find('$').unwrap_or(0);
         let text = &body[tag_len + 1..body.len() - tag_len - 2];
         crate::ast::StringLiteral {
-            text,
+            text: text.into(),
             quote: '$',
             backslash_escapes: false,
             national: false,
@@ -1714,7 +1703,7 @@ pub fn parse_prefix<'a, D: Dialect<Ext = Builtin>>(
         p.advance();
         let expr = p.parse_expr_bp(prec::UNARY)?;
         return Ok(ExprKind::Ext(BuiltinExpr::Postgres(PostgresExpr::Prefix {
-            op: token.text,
+            op: token.text.into(),
             expr: Box::new(expr),
         }))
         .into());
@@ -1726,7 +1715,7 @@ pub fn parse_prefix<'a, D: Dialect<Ext = Builtin>>(
         p.advance();
         let expr = p.parse_expr_bp(prec::UNARY)?;
         return Ok(ExprKind::Ext(BuiltinExpr::Postgres(PostgresExpr::Prefix {
-            op: "-",
+            op: "-".into(),
             expr: Box::new(expr),
         }))
         .into());
@@ -1762,7 +1751,7 @@ pub fn parse_function_call<'a, D: Dialect<Ext = Builtin>>(
 ) -> PResult<Expr<'a, Builtin>> {
     if let [only] = name.parts.as_slice()
         && only.quote.is_none()
-        && let Some(expr) = parse_special_call(p, only.text)?
+        && let Some(expr) = parse_special_call(p, only.text.clone())?
     {
         return Ok(expr);
     }
@@ -1771,7 +1760,7 @@ pub fn parse_function_call<'a, D: Dialect<Ext = Builtin>>(
 
 fn parse_special_call<'a, D: Dialect<Ext = Builtin>>(
     p: &mut Parser<'a, D>,
-    name: &'a str,
+    name: Cow<'a, str>,
 ) -> PResult<Option<Expr<'a, Builtin>>> {
     let eq = |word: &str| name.eq_ignore_ascii_case(word);
     let ext = |expr| ExprKind::Ext(BuiltinExpr::Postgres(expr)).into();
@@ -1901,7 +1890,7 @@ pub fn parse_function_arg<'a, D: Dialect<Ext = Builtin>>(
         let value = p.parse_expr()?;
         return Ok(FunctionArg::NamedWith {
             name,
-            operator: ":=",
+            operator: ":=".into(),
             value,
         });
     }
@@ -2029,7 +2018,7 @@ pub fn string_literal<'a>(token: Token<'a>, backslash_escapes: bool) -> StringLi
         _ => (StringPrefix::None, text, backslash_escapes),
     };
     StringLiteral {
-        text: &body[1..body.len() - 1],
+        text: Cow::Borrowed(&body[1..body.len() - 1]),
         quote: char::from(body.as_bytes()[0]),
         backslash_escapes: escapes,
         national: matches!(text.as_bytes()[0], b'n' | b'N'),
@@ -2298,7 +2287,7 @@ pub fn parse_insert_statement<'a, D: Dialect<Ext = Builtin>>(
         PostgresInsert {
             insert,
             alias,
-            overriding,
+            overriding: overriding.map(Cow::Borrowed),
             on_conflict,
         },
     ))))
@@ -2364,7 +2353,7 @@ pub fn parse_cte<'a, D: Dialect<Ext = Builtin>>(
     let query = if dml {
         let statement = p.nested(Parser::parse_statement)?;
         Query {
-            with: Vec::new(),
+            with: None,
             body: SetExpr::Statement(Box::new(statement)),
             order_by: Vec::new(),
             distribution: None,
@@ -2562,7 +2551,7 @@ fn parse_factorial<'a, D: Dialect<Ext = Builtin>>(
     let op = p.advance().text;
     Ok(ExprKind::Ext(BuiltinExpr::Postgres(PostgresExpr::Postfix {
         expr: Box::new(left),
-        op,
+        op: op.into(),
     }))
     .into())
 }
@@ -2579,7 +2568,7 @@ fn parse_custom_binary<'a, D: Dialect<Ext = Builtin>>(
             PostgresBinary {
                 left,
                 qualified: None,
-                op,
+                op: op.into(),
                 right,
             },
         ))))
@@ -2597,7 +2586,7 @@ fn parse_operator_call<'a, D: Dialect<Ext = Builtin>>(
     let operator = ddl::parse_operator_name(p)?;
     p.expect_op(")")?;
     let right = p.parse_expr_bp(bp)?;
-    let op = operator.operator;
+    let op = operator.operator.clone();
     Ok(
         ExprKind::Ext(BuiltinExpr::Postgres(PostgresExpr::Binary(Box::new(
             PostgresBinary {

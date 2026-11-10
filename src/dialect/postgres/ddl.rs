@@ -18,6 +18,7 @@
 //! Objects only PostgreSQL has: operators, aggregates, functions, types,
 //! roles, text search, foreign data, triggers and rules.
 
+use std::borrow::Cow;
 use std::fmt;
 
 use crate::PResult;
@@ -41,7 +42,6 @@ type PolicyConditions<'a> = (Option<Exp<'a>>, Option<Exp<'a>>);
 /// An element of a `(name [= value], ...)` definition list.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct DefElem<'a> {
     pub name: Ident<'a>,
@@ -52,7 +52,6 @@ pub struct DefElem<'a> {
 /// function or a word, or be a number or string.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum DefArg<'a> {
     /// A type or function name, which PostgreSQL reads identically.
@@ -61,16 +60,15 @@ pub enum DefArg<'a> {
     Operator(OperatorName<'a>),
     /// `OPERATOR([schema.]operator)`
     OperatorCall(OperatorName<'a>),
-    Number(&'a str),
+    Number(Cow<'a, str>),
     String(StringLiteral<'a>),
     /// A reserved word used as a value.
-    Word(&'a str),
+    Word(Cow<'a, str>),
 }
 
 /// `RENAME TO`, `OWNER TO` or `SET SCHEMA`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum ObjectAction<'a> {
     Rename(Ident<'a>),
@@ -81,7 +79,6 @@ pub enum ObjectAction<'a> {
 /// The name, method and items of `CREATE OPERATOR CLASS`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct CreateOperatorClass<'a> {
     pub name: ObjectName<'a>,
@@ -95,18 +92,17 @@ pub struct CreateOperatorClass<'a> {
 /// One item of an operator class or family.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum OperatorClassItem<'a> {
     Operator {
-        strategy: &'a str,
+        strategy: Cow<'a, str>,
         operator: OperatorName<'a>,
-        types: Option<(DataType<'a>, DataType<'a>)>,
+        types: Option<Box<(DataType<'a>, DataType<'a>)>>,
         /// `FOR SEARCH`, or `FOR ORDER BY` this family.
         purpose: Option<OperatorPurpose<'a>>,
     },
     Function {
-        support: &'a str,
+        support: Cow<'a, str>,
         /// The optional types written directly after the support number.
         op_types: Vec<DataType<'a>>,
         name: Option<ObjectName<'a>>,
@@ -117,7 +113,6 @@ pub enum OperatorClassItem<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum OperatorPurpose<'a> {
     Search,
@@ -127,7 +122,6 @@ pub enum OperatorPurpose<'a> {
 /// `CREATE OPERATOR CLASS` and `FAMILY`, `ALTER` and `DROP`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum AlterFamilyOp<'a> {
     Add(Vec<OperatorClassItem<'a>>),
@@ -138,7 +132,6 @@ pub enum AlterFamilyOp<'a> {
 /// `(*)`, `(args)`, `(args ORDER BY args)` or `(ORDER BY args)`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -155,7 +148,6 @@ pub enum AggregateArgs<'a> {
 /// `CREATE [OR REPLACE] AGGREGATE`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -172,7 +164,6 @@ pub struct CreateAggregate<'a> {
 /// `ALTER AGGREGATE name (args) ...`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -187,7 +178,6 @@ pub struct AlterAggregate<'a> {
 /// `RETURNS` in `CREATE FUNCTION`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -202,7 +192,6 @@ pub enum FunctionReturn<'a> {
 /// `SET parameter ...`, in a function or role.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -217,7 +206,6 @@ pub struct ParameterSetting<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -232,7 +220,6 @@ pub enum ParameterValue<'a> {
 /// The body of `CREATE FUNCTION`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -253,7 +240,6 @@ pub enum FunctionBody<'a> {
 /// `CREATE [OR REPLACE] FUNCTION`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -267,16 +253,16 @@ pub struct CreateFunction<'a> {
     pub language: Option<Ident<'a>>,
     pub window: bool,
     /// `IMMUTABLE`, `STABLE` or `VOLATILE`.
-    pub volatility: Option<&'a str>,
+    pub volatility: Option<Cow<'a, str>>,
     /// `CALLED ON NULL INPUT`, `RETURNS NULL ON NULL INPUT` or `STRICT`.
-    pub null_input: Option<&'a str>,
+    pub null_input: Option<Cow<'a, str>>,
     /// `SAFE`, `UNSAFE` or `RESTRICTED`.
-    pub parallel: Option<&'a str>,
+    pub parallel: Option<Cow<'a, str>>,
     /// `DEFINER` or `INVOKER`.
-    pub security: Option<&'a str>,
+    pub security: Option<Cow<'a, str>>,
     pub leakproof: Option<bool>,
-    pub cost: Option<&'a str>,
-    pub rows: Option<&'a str>,
+    pub cost: Option<Cow<'a, str>>,
+    pub rows: Option<Cow<'a, str>>,
     pub support: Option<ObjectName<'a>>,
     pub set: Vec<ParameterSetting<'a>>,
     pub body: Option<FunctionBody<'a>>,
@@ -285,23 +271,22 @@ pub struct CreateFunction<'a> {
 /// An `ALTER FUNCTION` action, in the order written.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
     visit(ext = "crate::dialect::Builtin")
 )]
 pub enum FunctionAttr<'a> {
-    Volatility(&'a str),
-    NullInput(&'a str),
-    Parallel(&'a str),
+    Volatility(Cow<'a, str>),
+    NullInput(Cow<'a, str>),
+    Parallel(Cow<'a, str>),
     Security {
         external: bool,
-        kind: &'a str,
+        kind: Cow<'a, str>,
     },
     Leakproof(bool),
-    Cost(&'a str),
-    Rows(&'a str),
+    Cost(Cow<'a, str>),
+    Rows(Cow<'a, str>),
     Support(ObjectName<'a>),
     Set(ParameterSetting<'a>),
     /// `RESET name` or `RESET ALL`, the second with `None`.
@@ -312,7 +297,6 @@ pub enum FunctionAttr<'a> {
 /// What `ALTER FUNCTION` changes.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -331,7 +315,6 @@ pub enum AlterFunctionOp<'a> {
 /// `ALTER FUNCTION signature ...`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -345,30 +328,28 @@ pub struct AlterFunction<'a> {
 /// One clause of `CREATE ROLE` or `ALTER ROLE`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum RoleOption<'a> {
     /// `SUPERUSER`, `NOLOGIN`, ... kept as written.
-    Flag(&'a str),
-    ConnectionLimit(&'a str),
+    Flag(Cow<'a, str>),
+    ConnectionLimit(Cow<'a, str>),
     Password(Option<StringLiteral<'a>>),
     ValidUntil(StringLiteral<'a>),
     /// `IN ROLE`, `ROLE`, `ADMIN` and `USER` lists, holding their keyword.
     Members {
-        keyword: &'a str,
+        keyword: Cow<'a, str>,
         names: Vec<Ident<'a>>,
     },
-    Sysid(&'a str),
+    Sysid(Cow<'a, str>),
 }
 
 /// `CREATE ROLE`, `USER` or `GROUP`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct CreateRole<'a> {
     /// `ROLE`, `USER` or `GROUP`.
-    pub keyword: &'a str,
+    pub keyword: Cow<'a, str>,
     pub name: Ident<'a>,
     pub options: Vec<RoleOption<'a>>,
 }
@@ -376,7 +357,6 @@ pub struct CreateRole<'a> {
 /// What `ALTER ROLE` does.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -392,14 +372,13 @@ pub enum AlterRoleOp<'a> {
 /// `ALTER ROLE`, `USER` or `GROUP`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
     visit(ext = "crate::dialect::Builtin")
 )]
 pub struct AlterRole<'a> {
-    pub keyword: &'a str,
+    pub keyword: Cow<'a, str>,
     pub name: Ident<'a>,
     pub in_database: Option<Ident<'a>>,
     pub op: AlterRoleOp<'a>,
@@ -407,7 +386,6 @@ pub struct AlterRole<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum ExtensionVersion<'a> {
     Name(Ident<'a>),
@@ -416,7 +394,6 @@ pub enum ExtensionVersion<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct CreateExtension<'a> {
     pub if_not_exists: bool,
@@ -429,7 +406,6 @@ pub struct CreateExtension<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -445,7 +421,6 @@ pub struct CreateDomain<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -476,7 +451,6 @@ pub enum CreateType<'a> {
 /// `ALTER TYPE name ...`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct AlterType<'a> {
     pub name: ObjectName<'a>,
@@ -485,7 +459,6 @@ pub struct AlterType<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum AlterTypeOp<'a> {
     Action(ObjectAction<'a>),
@@ -503,7 +476,6 @@ pub enum AlterTypeOp<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct CreateCollation<'a> {
     pub if_not_exists: bool,
@@ -513,7 +485,6 @@ pub struct CreateCollation<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum CollationSource<'a> {
     Definition(Vec<DefElem<'a>>),
@@ -523,7 +494,6 @@ pub enum CollationSource<'a> {
 /// `ALTER COLLATION name ...`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct AlterCollation<'a> {
     pub name: ObjectName<'a>,
@@ -532,7 +502,6 @@ pub struct AlterCollation<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum AlterCollationOp<'a> {
     Action(ObjectAction<'a>),
@@ -553,7 +522,6 @@ pub enum TextSearchKind {
 /// `ALTER TEXT SEARCH kind name ...`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum AlterTextSearchOp<'a> {
     Options(Vec<DefElem<'a>>),
@@ -563,7 +531,6 @@ pub enum AlterTextSearchOp<'a> {
 /// A clause of `CREATE FOREIGN DATA WRAPPER`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum FdwClause<'a> {
     Handler(Option<Ident<'a>>),
@@ -573,7 +540,6 @@ pub enum FdwClause<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct CreateServer<'a> {
     pub if_not_exists: bool,
@@ -586,7 +552,6 @@ pub struct CreateServer<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct CreateUserMapping<'a> {
     pub if_not_exists: bool,
@@ -598,19 +563,18 @@ pub struct CreateUserMapping<'a> {
 /// One action of `ALTER DEFAULT PRIVILEGES`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum DefaultPrivilegesAction<'a> {
     Grant {
         privileges: Privileges<'a>,
-        object: Vec<&'a str>,
+        object: Vec<Cow<'a, str>>,
         grantees: Vec<Grantee<'a>>,
         with_grant_option: bool,
     },
     Revoke {
         grant_option: bool,
         privileges: Privileges<'a>,
-        object: Vec<&'a str>,
+        object: Vec<Cow<'a, str>>,
         grantees: Vec<Grantee<'a>>,
         behavior: Option<DropBehavior>,
     },
@@ -618,7 +582,6 @@ pub enum DefaultPrivilegesAction<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct AlterDefaultPrivileges<'a> {
     /// `FOR ROLE names` and `IN SCHEMA names`, in the order written.
@@ -628,11 +591,10 @@ pub struct AlterDefaultPrivileges<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum DefaultPrivilegesClause<'a> {
     Roles {
-        keyword: &'a str,
+        keyword: Cow<'a, str>,
         names: Vec<Ident<'a>>,
     },
     Schemas(Vec<Ident<'a>>),
@@ -640,7 +602,6 @@ pub enum DefaultPrivilegesClause<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum TriggerEvent<'a> {
     Insert,
@@ -651,7 +612,6 @@ pub enum TriggerEvent<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -662,7 +622,7 @@ pub struct CreateTrigger<'a> {
     pub constraint: bool,
     pub name: Ident<'a>,
     /// `BEFORE`, `AFTER` or `INSTEAD OF`.
-    pub timing: &'a str,
+    pub timing: Cow<'a, str>,
     pub events: Vec<TriggerEvent<'a>>,
     #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
     pub table: ObjectName<'a>,
@@ -683,7 +643,6 @@ pub struct CreateTrigger<'a> {
 /// One `REFERENCING` item.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct TriggerReferencing<'a> {
     pub new: bool,
@@ -694,7 +653,6 @@ pub struct TriggerReferencing<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -703,7 +661,7 @@ pub struct TriggerReferencing<'a> {
 pub struct CreateRule<'a> {
     pub or_replace: bool,
     pub name: Ident<'a>,
-    pub event: &'a str,
+    pub event: Cow<'a, str>,
     #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
     pub table: ObjectName<'a>,
     pub condition: Option<Exp<'a>>,
@@ -715,7 +673,6 @@ pub struct CreateRule<'a> {
 /// What a rule does.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -770,7 +727,7 @@ pub fn parse_operator_name<'a, D: Dialect<Ext = Builtin>>(
     p.advance();
     Ok(OperatorName {
         schema,
-        operator: token.text,
+        operator: token.text.into(),
     })
 }
 
@@ -813,7 +770,7 @@ fn parse_def_arg<'a, D: Dialect<Ext = Builtin>>(p: &mut Parser<'a, D>) -> PResul
         }
         TokenKind::Number => {
             p.advance();
-            return Ok(DefArg::Number(token.text));
+            return Ok(DefArg::Number(token.text.into()));
         }
         TokenKind::Op
             if (token.text == "-" || token.text == "+")
@@ -826,7 +783,7 @@ fn parse_def_arg<'a, D: Dialect<Ext = Builtin>>(p: &mut Parser<'a, D>) -> PResul
                 start,
                 end: number.span.end,
             };
-            return Ok(DefArg::Number(p.text(span)));
+            return Ok(DefArg::Number(p.text(span).into()));
         }
         TokenKind::Op => return Ok(DefArg::Operator(parse_operator_name(p)?)),
         TokenKind::Word if token.is_word("OPERATOR") && p.peek_nth(1).is_op("(") => {
@@ -839,7 +796,7 @@ fn parse_def_arg<'a, D: Dialect<Ext = Builtin>>(p: &mut Parser<'a, D>) -> PResul
     }
     if token.kind == TokenKind::Word && !p.at_ident() {
         p.advance();
-        return Ok(DefArg::Word(token.text));
+        return Ok(DefArg::Word(token.text.into()));
     }
     Ok(DefArg::Type(D::parse_data_type(p)?))
 }
@@ -901,18 +858,18 @@ fn parse_family_item<'a, D: Dialect<Ext = Builtin>>(
         if dropping {
             let types = parse_operator_types(p)?;
             return Ok(OperatorClassItem::Operator {
-                strategy,
+                strategy: strategy.into(),
                 operator: OperatorName {
                     schema: Vec::new(),
-                    operator: "",
+                    operator: "".into(),
                 },
-                types: Some(types),
+                types: Some(Box::new(types)),
                 purpose: None,
             });
         }
         let operator = parse_operator_name(p)?;
         let types = if p.at_op("(") {
-            Some(parse_operator_types(p)?)
+            Some(Box::new(parse_operator_types(p)?))
         } else {
             None
         };
@@ -928,7 +885,7 @@ fn parse_family_item<'a, D: Dialect<Ext = Builtin>>(
             None
         };
         return Ok(OperatorClassItem::Operator {
-            strategy,
+            strategy: strategy.into(),
             operator,
             types,
             purpose,
@@ -958,7 +915,7 @@ fn parse_family_item<'a, D: Dialect<Ext = Builtin>>(
             (Some(name), args.filter(|args| !args.is_empty()))
         };
         return Ok(OperatorClassItem::Function {
-            support,
+            support: support.into(),
             op_types,
             name,
             args,
@@ -1032,7 +989,7 @@ fn parse_create_operator<'a, D: Dialect<Ext = Builtin>>(
     }
     let mut name = parse_operator_name(p)?;
     if name.operator == "!=" {
-        name.operator = "<>";
+        name.operator = "<>".into();
     }
     let definition: Vec<DefElem<'a>> = parse_definition(p)?
         .into_iter()
@@ -1078,7 +1035,7 @@ fn check_definition<'a, D: Dialect>(
 ) -> PResult<()> {
     let mut seen: Vec<&str> = Vec::new();
     for element in definition {
-        let name = element.name.text;
+        let name = &element.name.text;
         let key = keys.iter().find(|key| key.eq_ignore_ascii_case(name));
         let Some(key) = key.filter(|_| element.name.quote.is_none()) else {
             return Err(p.expected(&format!("a definition option, not {name}")));
@@ -1143,7 +1100,6 @@ fn parse_alter_operator<'a, D: Dialect<Ext = Builtin>>(
 /// What `ALTER OPERATOR` does.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum AlterOperatorOp<'a> {
     Action(ObjectAction<'a>),
@@ -1207,7 +1163,7 @@ fn parse_routine_param<'a, D: Dialect<Ext = Builtin>>(p: &mut Parser<'a, D>) -> 
         None
     };
     Ok(RoutineArg {
-        mode,
+        mode: mode.map(Cow::Borrowed),
         name,
         data_type,
         default,
@@ -1217,7 +1173,7 @@ fn parse_routine_param<'a, D: Dialect<Ext = Builtin>>(p: &mut Parser<'a, D>) -> 
 fn parse_aggregate_arg<'a, D: Dialect<Ext = Builtin>>(p: &mut Parser<'a, D>) -> PResult<Arg<'a>> {
     let token = p.peek();
     let arg = parse_routine_param(p)?;
-    if matches!(arg.mode, Some("OUT" | "INOUT")) || arg.default.is_some() {
+    if matches!(arg.mode.as_deref(), Some("OUT" | "INOUT")) || arg.default.is_some() {
         return Err(crate::ParseError {
             message: "aggregate arguments cannot be output arguments or have defaults".into(),
             span: token.span,
@@ -1384,18 +1340,23 @@ fn parse_create_function<'a, D: Dialect<Ext = Builtin>>(
             set_once(
                 p,
                 &mut function.volatility,
-                Ok(volatility),
+                Ok(volatility.into()),
                 "IMMUTABLE, STABLE or VOLATILE",
             )?;
         } else if let Some(null_input) = parse_null_input(p) {
-            set_once(p, &mut function.null_input, Ok(null_input), "null input")?;
+            set_once(
+                p,
+                &mut function.null_input,
+                Ok(null_input.into()),
+                "null input",
+            )?;
         } else if p.eat_keyword("PARALLEL") {
             let level = parse_parallel(p)?;
-            set_once(p, &mut function.parallel, Ok(level), "PARALLEL")?;
+            set_once(p, &mut function.parallel, Ok(level.into()), "PARALLEL")?;
         } else if p.at_keyword("SECURITY") {
             p.advance();
             let kind = parse_security_kind(p)?;
-            set_once(p, &mut function.security, Ok(kind), "SECURITY")?;
+            set_once(p, &mut function.security, Ok(kind.into()), "SECURITY")?;
         } else if p.eat_keyword("LEAKPROOF") {
             set_once(p, &mut function.leakproof, Ok(true), "LEAKPROOF")?;
         } else if p.at_keyword("NOT") && p.peek_nth(1).is_word("LEAKPROOF") {
@@ -1403,10 +1364,10 @@ fn parse_create_function<'a, D: Dialect<Ext = Builtin>>(
             p.advance();
             set_once(p, &mut function.leakproof, Ok(false), "LEAKPROOF")?;
         } else if p.eat_keyword("COST") {
-            let cost = parse_number_literal(p);
+            let cost = parse_number_literal(p).map(Cow::from);
             set_once(p, &mut function.cost, cost, "COST")?;
         } else if p.eat_keyword("ROWS") {
-            let rows = parse_number_literal(p);
+            let rows = parse_number_literal(p).map(Cow::from);
             set_once(p, &mut function.rows, rows, "ROWS")?;
         } else if p.eat_keyword("SUPPORT") {
             let name = grammar::parse_object_name(p);
@@ -1612,7 +1573,7 @@ fn parse_alter_function<'a, D: Dialect<Ext = Builtin>>(
         AlterFunctionOp::Attributes(attrs)
     };
     Ok(PostgresStatement::AlterFunction(
-        keyword,
+        keyword.into(),
         Box::new(AlterFunction { signature, op }),
     ))
 }
@@ -1621,20 +1582,22 @@ fn parse_function_attr<'a, D: Dialect<Ext = Builtin>>(
     p: &mut Parser<'a, D>,
 ) -> PResult<Option<FunctionAttr<'a>>> {
     if let Some(volatility) = parse_volatility(p) {
-        return Ok(Some(FunctionAttr::Volatility(volatility)));
+        return Ok(Some(FunctionAttr::Volatility(volatility.into())));
     }
     if let Some(null_input) = parse_null_input(p) {
-        return Ok(Some(FunctionAttr::NullInput(null_input)));
+        return Ok(Some(FunctionAttr::NullInput(null_input.into())));
     }
     if p.eat_keyword("PARALLEL") {
-        return parse_parallel(p).map(FunctionAttr::Parallel).map(Some);
+        return parse_parallel(p)
+            .map(|v| FunctionAttr::Parallel(v.into()))
+            .map(Some);
     }
     if p.at_keyword("SECURITY") || (p.at_keyword("EXTERNAL") && p.peek_nth(1).is_word("SECURITY")) {
         let external = p.eat_keyword("EXTERNAL");
         p.advance();
         return Ok(Some(FunctionAttr::Security {
             external,
-            kind: parse_security_kind(p)?,
+            kind: parse_security_kind(p)?.into(),
         }));
     }
     if p.eat_keyword("LEAKPROOF") {
@@ -1646,10 +1609,14 @@ fn parse_function_attr<'a, D: Dialect<Ext = Builtin>>(
         return Ok(Some(FunctionAttr::Leakproof(false)));
     }
     if p.eat_keyword("COST") {
-        return parse_number_literal(p).map(FunctionAttr::Cost).map(Some);
+        return parse_number_literal(p)
+            .map(|v| FunctionAttr::Cost(v.into()))
+            .map(Some);
     }
     if p.eat_keyword("ROWS") {
-        return parse_number_literal(p).map(FunctionAttr::Rows).map(Some);
+        return parse_number_literal(p)
+            .map(|v| FunctionAttr::Rows(v.into()))
+            .map(Some);
     }
     if p.eat_keyword("SUPPORT") {
         return grammar::parse_object_name(p)
@@ -1701,7 +1668,7 @@ fn parse_role_option<'a, D: Dialect<Ext = Builtin>>(
     let token = p.peek();
     if token.kind == TokenKind::Word && ROLE_FLAGS.iter().any(|word| token.is_word(word)) {
         p.advance();
-        return Ok(Some(RoleOption::Flag(token.text)));
+        return Ok(Some(RoleOption::Flag(token.text.into())));
     }
     if p.eat_keyword("CONNECTION") {
         p.expect_keyword("LIMIT")?;
@@ -1711,9 +1678,9 @@ fn parse_role_option<'a, D: Dialect<Ext = Builtin>>(
         }
         let number = grammar::parse_number_text(p)?;
         let end = number.as_ptr() as usize + number.len() - p.source().as_ptr() as usize;
-        return Ok(Some(RoleOption::ConnectionLimit(
+        return Ok(Some(RoleOption::ConnectionLimit(Cow::Borrowed(
             &p.source()[start as usize..end],
-        )));
+        ))));
     }
     if p.eat_keyword("PASSWORD") {
         let value = if p.eat_keyword("NULL") {
@@ -1730,7 +1697,9 @@ fn parse_role_option<'a, D: Dialect<Ext = Builtin>>(
             .map(Some);
     }
     if p.eat_keyword("SYSID") {
-        return parse_number_literal(p).map(RoleOption::Sysid).map(Some);
+        return parse_number_literal(p)
+            .map(|v| RoleOption::Sysid(v.into()))
+            .map(Some);
     }
     let keyword = if p.at_keyword("IN") && p.peek_nth(1).is_word("ROLE") {
         p.advance();
@@ -1753,28 +1722,31 @@ fn parse_role_option<'a, D: Dialect<Ext = Builtin>>(
         return Ok(None);
     };
     let names = p.parse_comma_separated(Parser::parse_ident)?;
-    Ok(Some(RoleOption::Members { keyword, names }))
+    Ok(Some(RoleOption::Members {
+        keyword: keyword.into(),
+        names,
+    }))
 }
 
 fn parse_role_options<'a, D: Dialect<Ext = Builtin>>(
     p: &mut Parser<'a, D>,
 ) -> PResult<Vec<RoleOption<'a>>> {
     let mut options = Vec::new();
-    let mut seen_flags: Vec<&str> = Vec::new();
+    let mut seen_flags: Vec<String> = Vec::new();
     let start = p.peek();
     while let Some(option) = parse_role_option(p)? {
-        if let RoleOption::Flag(word) = option {
+        if let RoleOption::Flag(ref word) = option {
             let base = word
                 .strip_prefix(['n', 'N'])
                 .filter(|rest| {
                     rest.strip_prefix(['o', 'O'])
                         .is_some_and(|flag| ROLE_FLAGS.iter().any(|f| f.eq_ignore_ascii_case(flag)))
                 })
-                .map_or(word, |rest| &rest[1..]);
+                .map_or(word.as_ref(), |rest| &rest[1..]);
             if seen_flags.iter().any(|f| f.eq_ignore_ascii_case(base)) {
                 return Err(p.expected(&format!("only one {base} option, near {}", start.text)));
             }
-            seen_flags.push(base);
+            seen_flags.push(base.to_owned());
         }
         options.push(option);
     }
@@ -1821,7 +1793,7 @@ fn parse_create_role<'a, D: Dialect<Ext = Builtin>>(
     p.eat_keyword("WITH");
     let options = parse_role_options(p)?;
     Ok(PostgresStatement::CreateRole(Box::new(CreateRole {
-        keyword,
+        keyword: keyword.into(),
         name,
         options,
     })))
@@ -1866,7 +1838,7 @@ fn parse_alter_role<'a, D: Dialect<Ext = Builtin>>(
         AlterRoleOp::Options { options }
     };
     Ok(PostgresStatement::AlterRole(Box::new(AlterRole {
-        keyword,
+        keyword: keyword.into(),
         name,
         in_database,
         op,
@@ -2134,7 +2106,7 @@ fn parse_generic_option<'a, D: Dialect<Ext = Builtin>>(
         Some(grammar::parse_string(p)?)
     };
     Ok(GenericOption {
-        action: keyword,
+        action: keyword.map(Cow::Borrowed),
         name,
         value,
     })
@@ -2234,7 +2206,7 @@ fn parse_default_privileges<'a, D: Dialect<Ext = Builtin>>(
                 "USER"
             };
             clauses.push(DefaultPrivilegesClause::Roles {
-                keyword,
+                keyword: keyword.into(),
                 names: p.parse_comma_separated(Parser::parse_ident)?,
             });
         } else if p.at_keyword("IN") && p.peek_nth(1).is_word("SCHEMA") {
@@ -2260,7 +2232,7 @@ fn parse_default_privileges<'a, D: Dialect<Ext = Builtin>>(
         }
         DefaultPrivilegesAction::Grant {
             privileges,
-            object,
+            object: object.into_iter().map(Cow::Borrowed).collect(),
             grantees,
             with_grant_option,
         }
@@ -2286,7 +2258,7 @@ fn parse_default_privileges<'a, D: Dialect<Ext = Builtin>>(
         DefaultPrivilegesAction::Revoke {
             grant_option,
             privileges,
-            object,
+            object: object.into_iter().map(Cow::Borrowed).collect(),
             grantees,
             behavior,
         }
@@ -2413,7 +2385,7 @@ fn parse_create_trigger<'a, D: Dialect<Ext = Builtin>>(
         or_replace,
         constraint,
         name,
-        timing,
+        timing: timing.into(),
         events,
         table,
         from,
@@ -2433,7 +2405,7 @@ fn parse_trigger_arg<'a, D: Dialect<Ext = Builtin>>(p: &mut Parser<'a, D>) -> PR
     match token.kind {
         TokenKind::Number => {
             p.advance();
-            Ok(Literal::Number(token.text))
+            Ok(Literal::Number(token.text.into()))
         }
         TokenKind::String => {
             p.advance();
@@ -2507,7 +2479,7 @@ fn parse_create_rule<'a, D: Dialect<Ext = Builtin>>(
     Ok(PostgresStatement::CreateRule(Box::new(CreateRule {
         or_replace,
         name,
-        event,
+        event: event.into(),
         table,
         condition,
         instead,
@@ -2592,8 +2564,8 @@ fn parse_create_policy<'a, D: Dialect<Ext = Builtin>>(
     Ok(PostgresStatement::CreatePolicy(Box::new(CreatePolicy {
         name,
         table,
-        kind,
-        command,
+        kind: kind.map(Cow::Borrowed),
+        command: command.map(Cow::Borrowed),
         to,
         using,
         with_check,
@@ -2761,7 +2733,7 @@ impl fmt::Display for DefArg<'_> {
             DefArg::Operator(op) => op.fmt(f),
             DefArg::OperatorCall(op) => write!(f, "OPERATOR({op})"),
             DefArg::Number(n) => f.write_str(n),
-            DefArg::String(s) => Literal::String(*s).fmt(f),
+            DefArg::String(s) => s.fmt(f),
             DefArg::Word(w) => f.write_str(w),
         }
     }
@@ -2790,7 +2762,7 @@ impl fmt::Display for OperatorClassItem<'_> {
                 if !operator.operator.is_empty() {
                     write!(f, " {operator}")?;
                 }
-                if let Some((left, right)) = types {
+                if let Some((left, right)) = types.as_deref() {
                     write!(f, " ({left}, {right})")?;
                 }
                 match purpose {
@@ -2914,16 +2886,16 @@ impl fmt::Display for CreateFunction<'_> {
         if self.window {
             f.write_str(" WINDOW")?;
         }
-        if let Some(volatility) = self.volatility {
+        if let Some(ref volatility) = self.volatility {
             write!(f, " {volatility}")?;
         }
-        if let Some(null_input) = self.null_input {
+        if let Some(ref null_input) = self.null_input {
             write!(f, " {null_input}")?;
         }
-        if let Some(parallel) = self.parallel {
+        if let Some(ref parallel) = self.parallel {
             write!(f, " PARALLEL {parallel}")?;
         }
-        if let Some(security) = self.security {
+        if let Some(ref security) = self.security {
             write!(f, " SECURITY {security}")?;
         }
         match self.leakproof {
@@ -2931,10 +2903,10 @@ impl fmt::Display for CreateFunction<'_> {
             Some(false) => f.write_str(" NOT LEAKPROOF")?,
             None => {}
         }
-        if let Some(cost) = self.cost {
+        if let Some(ref cost) = self.cost {
             write!(f, " COST {cost}")?;
         }
-        if let Some(rows) = self.rows {
+        if let Some(ref rows) = self.rows {
             write!(f, " ROWS {rows}")?;
         }
         if let Some(support) = &self.support {
@@ -3011,9 +2983,9 @@ impl fmt::Display for RoleOption<'_> {
             RoleOption::ConnectionLimit(limit) => write!(f, "CONNECTION LIMIT {limit}"),
             RoleOption::Password(None) => f.write_str("PASSWORD NULL"),
             RoleOption::Password(Some(password)) => {
-                write!(f, "PASSWORD {}", Literal::String(*password))
+                write!(f, "PASSWORD {}", password)
             }
-            RoleOption::ValidUntil(when) => write!(f, "VALID UNTIL {}", Literal::String(*when)),
+            RoleOption::ValidUntil(when) => write!(f, "VALID UNTIL {}", when),
             RoleOption::Members { keyword, names } => write!(f, "{keyword} {}", comma(names)),
             RoleOption::Sysid(id) => write!(f, "SYSID {id}"),
         }
@@ -3062,9 +3034,7 @@ impl fmt::Display for CreateExtension<'_> {
         }
         match &self.version {
             Some(ExtensionVersion::Name(version)) => write!(f, " VERSION {version}")?,
-            Some(ExtensionVersion::String(version)) => {
-                write!(f, " VERSION {}", Literal::String(*version))?
-            }
+            Some(ExtensionVersion::String(version)) => write!(f, " VERSION {}", version)?,
             None => {}
         }
         if self.cascade {
@@ -3097,7 +3067,7 @@ impl fmt::Display for CreateType<'_> {
                     if i > 0 {
                         f.write_str(", ")?;
                     }
-                    Literal::String(*label).fmt(f)?;
+                    label.fmt(f)?;
                 }
                 f.write_str(")")
             }
@@ -3127,20 +3097,15 @@ impl fmt::Display for AlterType<'_> {
             } => {
                 f.write_str("ADD VALUE ")?;
                 crate::display::write_if_not_exists(f, *if_not_exists)?;
-                Literal::String(*value).fmt(f)?;
+                value.fmt(f)?;
                 match position {
-                    Some((true, other)) => write!(f, " BEFORE {}", Literal::String(*other)),
-                    Some((false, other)) => write!(f, " AFTER {}", Literal::String(*other)),
+                    Some((true, other)) => write!(f, " BEFORE {}", other),
+                    Some((false, other)) => write!(f, " AFTER {}", other),
                     None => Ok(()),
                 }
             }
             AlterTypeOp::RenameValue { old, new } => {
-                write!(
-                    f,
-                    "RENAME VALUE {} TO {}",
-                    Literal::String(*old),
-                    Literal::String(*new)
-                )
+                write!(f, "RENAME VALUE {} TO {}", old, new)
             }
         }
     }
@@ -3201,11 +3166,11 @@ impl fmt::Display for CreateServer<'_> {
         f.write_str("CREATE SERVER ")?;
         crate::display::write_if_not_exists(f, self.if_not_exists)?;
         self.name.fmt(f)?;
-        if let Some(server_type) = self.server_type {
-            write!(f, " TYPE {}", Literal::String(server_type))?;
+        if let Some(ref server_type) = self.server_type {
+            write!(f, " TYPE {}", server_type)?;
         }
-        if let Some(version) = self.version {
-            write!(f, " VERSION {}", Literal::String(version))?;
+        if let Some(ref version) = self.version {
+            write!(f, " VERSION {}", version)?;
         }
         write!(f, " FOREIGN DATA WRAPPER {}", self.wrapper)?;
         if !self.options.is_empty() {
@@ -3229,7 +3194,7 @@ impl fmt::Display for CreateUserMapping<'_> {
     }
 }
 
-fn write_object_words(f: &mut fmt::Formatter<'_>, words: &[&str]) -> fmt::Result {
+fn write_object_words(f: &mut fmt::Formatter<'_>, words: &[Cow<'_, str>]) -> fmt::Result {
     for (i, word) in words.iter().enumerate() {
         if i > 0 {
             f.write_str(" ")?;

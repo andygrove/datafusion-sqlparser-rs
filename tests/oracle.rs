@@ -359,7 +359,7 @@ mod shape {
             prefix: Default::default(),
             triple: false,
             national: false,
-            text,
+            text: text.into(),
             quote: '\'',
             backslash_escapes: false,
         }))
@@ -404,7 +404,7 @@ mod shape {
         else {
             panic!("not a quote-delimited string: {expr:?}");
         };
-        (string.national, string.start, string.value, string.end)
+        (string.national, string.start, &string.value, string.end)
     }
 
     #[test]
@@ -436,13 +436,13 @@ mod shape {
             select.modifiers.hints,
             vec![
                 OptimizerHint {
-                    prefix: "",
-                    text: "one two three",
+                    prefix: "".into(),
+                    text: "one two three".into(),
                     style: HintStyle::MultiLine,
                 },
                 OptimizerHint {
-                    prefix: "x",
-                    text: "four",
+                    prefix: "x".into(),
+                    text: "four".into(),
                     style: HintStyle::MultiLine,
                 },
             ]
@@ -455,8 +455,8 @@ mod shape {
         assert_eq!(
             select.modifiers.hints,
             vec![OptimizerHint {
-                prefix: "abc",
-                text: " text",
+                prefix: "abc".into(),
+                text: " text".into(),
                 style: HintStyle::SingleLine,
             }]
         );

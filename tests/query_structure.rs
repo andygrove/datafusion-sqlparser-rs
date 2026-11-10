@@ -328,23 +328,23 @@ fn group_requires_by() {
 #[test]
 fn with_attaches_the_common_table_expression() {
     let parsed = query("WITH c AS (SELECT 1) SELECT 2 FROM c");
-    assert_eq!(parsed.with.len(), 1);
-    assert_eq!(parsed.with[0].name, ident("c"));
-    assert_eq!(parsed.with[0].query, query("SELECT 1"));
+    assert_eq!(parsed.ctes().len(), 1);
+    assert_eq!(parsed.ctes()[0].name, ident("c"));
+    assert_eq!(parsed.ctes()[0].query, query("SELECT 1"));
     assert_eq!(body(&parsed).from[0].relation.factor, named(&["c"]));
 }
 
 #[test]
 fn with_accepts_several_common_table_expressions() {
     let parsed = query("WITH a AS (SELECT 1), b AS (SELECT 2) SELECT 3");
-    let names: Vec<_> = parsed.with.iter().map(|cte| cte.name).collect();
+    let names: Vec<_> = parsed.ctes().iter().map(|cte| cte.name.clone()).collect();
     assert_eq!(names, vec![ident("a"), ident("b")]);
 }
 
 #[test]
 fn with_nests_inside_a_common_table_expression() {
     let parsed = query("WITH a AS (WITH b AS (SELECT 1) SELECT 2) SELECT 3");
-    assert_eq!(parsed.with[0].query.with[0].name, ident("b"));
+    assert_eq!(parsed.ctes()[0].query.ctes()[0].name, ident("b"));
 }
 
 #[test]
@@ -386,7 +386,7 @@ fn original_with_select_benchmark_query_has_the_expected_shape() {
         LEFT JOIN derived USING (user_id)",
     );
 
-    let cte = &parsed.with[0];
+    let cte = &parsed.ctes()[0];
     assert_eq!(cte.name, ident("derived"));
     assert_eq!(
         body(&cte.query).projection[0],

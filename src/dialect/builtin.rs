@@ -18,6 +18,7 @@
 //! The AST shared by all built-in dialects, and choosing one at runtime.
 
 use crate::ast::comments::Comments;
+use std::borrow::Cow;
 use std::fmt;
 
 use crate::ast::{Expr, Query, Statement};
@@ -76,7 +77,6 @@ impl AstExt for Builtin {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -99,7 +99,6 @@ pub enum BuiltinExpr<'a> {
 /// Join conditions that only some built-in dialects have.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum BuiltinJoinConstraint<'a> {
     Postgres(PostgresUsingConstraint<'a>),
@@ -116,7 +115,6 @@ impl fmt::Display for BuiltinJoinConstraint<'_> {
 /// Table factors that only some built-in dialects have.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -152,7 +150,6 @@ impl<'a> From<MySqlExpr<'a, Builtin>> for BuiltinExpr<'a> {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -160,7 +157,7 @@ impl<'a> From<MySqlExpr<'a, Builtin>> for BuiltinExpr<'a> {
 )]
 pub struct BuiltinSelect<'a> {
     /// The number in `SELECT TOP n`.
-    pub top: Option<&'a str>,
+    pub top: Option<Cow<'a, str>>,
     /// The expressions in PostgreSQL's `SELECT DISTINCT ON (...)`.
     pub distinct_on: Option<Vec<Expr<'a, Builtin>>>,
     /// Teradata's `TOP` when it is more than a plain number.
@@ -171,7 +168,7 @@ pub struct BuiltinSelect<'a> {
     /// `TOP` in Microsoft SQL Server, after any `DISTINCT`.
     pub mssql_top: Option<Box<MsSqlTop<'a>>>,
     /// BigQuery's `AS STRUCT` or `AS VALUE`, holding the word after `AS`.
-    pub bigquery_as: Option<&'a str>,
+    pub bigquery_as: Option<Cow<'a, str>>,
 }
 
 /// MySQL's keywords between `SELECT` and the select list.
@@ -190,7 +187,6 @@ pub struct MySqlSelect {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -215,7 +211,6 @@ pub enum BuiltinStatement<'a> {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct BuiltinInsert<'a> {
     /// MySQL's `INSERT IGNORE`.
@@ -223,7 +218,7 @@ pub struct BuiltinInsert<'a> {
     /// Snowflake's `INSERT OVERWRITE INTO`.
     pub overwrite: bool,
     /// MySQL's `LOW_PRIORITY`, `DELAYED` or `HIGH_PRIORITY`.
-    pub priority: Option<&'a str>,
+    pub priority: Option<Cow<'a, str>>,
 }
 
 /// Clauses at the end of a query that only a built-in dialect has.
@@ -231,7 +226,6 @@ pub struct BuiltinInsert<'a> {
 /// One pointer, to keep every query small.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -241,7 +235,6 @@ pub struct BuiltinQueryTail<'a>(pub Option<Box<BuiltinQueryClauses<'a>>>);
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -399,7 +392,7 @@ impl fmt::Display for BuiltinExpr<'_> {
 impl fmt::Display for BuiltinSelect<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         oracle::write_hints(f, &self.hints)?;
-        if let Some(top) = self.top {
+        if let Some(ref top) = self.top {
             write!(f, "TOP {top} ")?;
         }
         if let Some(top) = &self.teradata_top {
@@ -418,7 +411,7 @@ impl fmt::Display for BuiltinSelect<'_> {
         if let Some(top) = &self.mssql_top {
             write!(f, "{top} ")?;
         }
-        if let Some(word) = self.bigquery_as {
+        if let Some(ref word) = self.bigquery_as {
             write!(f, "AS {word} ")?;
         }
         let flags = [
@@ -441,7 +434,7 @@ impl fmt::Display for BuiltinSelect<'_> {
 
 impl fmt::Display for BuiltinInsert<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(priority) = self.priority {
+        if let Some(ref priority) = self.priority {
             write!(f, "{priority} ")?;
         }
         if self.ignore {

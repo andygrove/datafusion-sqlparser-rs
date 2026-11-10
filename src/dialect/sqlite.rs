@@ -18,6 +18,7 @@
 //! SQLite.
 
 use crate::ast::Span;
+use std::borrow::Cow;
 use std::fmt;
 
 use crate::PResult;
@@ -46,7 +47,6 @@ pub struct Sqlite;
 /// Statements only SQLite has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -66,7 +66,7 @@ pub enum SqliteStatement<'a> {
     },
     /// `BEGIN {DEFERRED | IMMEDIATE | EXCLUSIVE} [TRANSACTION]`
     Begin {
-        modifier: &'a str,
+        modifier: Cow<'a, str>,
         transaction_keyword: bool,
     },
     CreateTable(Box<SqliteCreateTable<'a>>),
@@ -88,7 +88,6 @@ pub enum PragmaForm {
 /// `CREATE TABLE` with table options, which come after the column list.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -112,7 +111,6 @@ pub enum SqliteTableOption {
 /// `CREATE VIRTUAL TABLE [IF NOT EXISTS] name USING module [(args)]`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct SqliteVirtualTable<'a> {
     pub if_not_exists: bool,
@@ -133,7 +131,6 @@ pub enum TriggerPeriod {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum TriggerEvent<'a> {
     Delete,
@@ -144,7 +141,6 @@ pub enum TriggerEvent<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -167,7 +163,6 @@ pub struct SqliteTrigger<'a> {
 /// An assignment in `UPDATE` or an upsert.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -180,7 +175,6 @@ pub struct SqliteAssignment<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum SqliteAssignmentTarget<'a> {
     Column(ObjectName<'a>),
@@ -191,7 +185,6 @@ pub enum SqliteAssignmentTarget<'a> {
 /// `INSERT` with syntax the core has no place for.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -199,7 +192,7 @@ pub enum SqliteAssignmentTarget<'a> {
 )]
 pub struct SqliteInsert<'a> {
     /// The word after `OR`, also set for `REPLACE`, which means the same.
-    pub or_action: Option<&'a str>,
+    pub or_action: Option<Cow<'a, str>>,
     #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
     pub table: ObjectName<'a>,
     pub columns: Vec<Ident<'a>>,
@@ -212,7 +205,6 @@ pub struct SqliteInsert<'a> {
 /// `ON CONFLICT [(columns) [WHERE condition]] DO ...`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -226,7 +218,6 @@ pub struct OnConflict<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -243,14 +234,13 @@ pub enum OnConflictAction<'a> {
 /// `UPDATE` with syntax the core has no place for.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
     visit(ext = "crate::dialect::Builtin")
 )]
 pub struct SqliteUpdate<'a> {
-    pub or_action: Option<&'a str>,
+    pub or_action: Option<Cow<'a, str>>,
     pub table: TableRef<'a, Builtin>,
     pub assignments: Vec<SqliteAssignment<'a>>,
     pub from: Vec<TableWithJoins<'a, Builtin>>,
@@ -262,7 +252,6 @@ pub struct SqliteUpdate<'a> {
 /// `DELETE` with syntax the core has no place for.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -279,7 +268,6 @@ pub struct SqliteDelete<'a> {
 /// Expressions only SQLite has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 pub enum SqliteExpr<'a> {
     /// `expr [NOT] IN table`, where `target` is a name or a table function.
     InTable {
@@ -302,7 +290,7 @@ impl<'a> crate::ast::Visit<'a, Builtin> for SqliteExpr<'a> {
         match &target.kind {
             ExprKind::Ident(ident) => {
                 let name = ObjectName {
-                    parts: vec![*ident],
+                    parts: vec![ident.clone()],
                 };
                 visitor.pre_visit_relation(&name)?;
                 name.visit(visitor)?;
@@ -329,13 +317,13 @@ impl<'a> crate::ast::VisitMut<'a, Builtin> for SqliteExpr<'a> {
         match &mut target.kind {
             ExprKind::Ident(ident) => {
                 let mut name = ObjectName {
-                    parts: vec![*ident],
+                    parts: vec![ident.clone()],
                 };
                 visitor.pre_visit_relation(&mut name)?;
                 name.visit(visitor)?;
                 visitor.post_visit_relation(&mut name)?;
-                if let Some(first) = name.parts.first() {
-                    *ident = *first;
+                if let Some(first) = name.parts.into_iter().next() {
+                    *ident = first;
                 }
                 std::ops::ControlFlow::Continue(())
             }
@@ -352,7 +340,6 @@ impl<'a> crate::ast::VisitMut<'a, Builtin> for SqliteExpr<'a> {
 /// A table with `INDEXED BY` or `NOT INDEXED` after it. The alias is on `table`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -646,7 +633,7 @@ pub fn lex_comment(rest: &str) -> Option<Result<usize, &'static str>> {
 
 fn string_ident(token: Token<'_>) -> Ident<'_> {
     Ident {
-        text: &token.text[1..token.text.len() - 1],
+        text: Cow::Borrowed(&token.text[1..token.text.len() - 1]),
         quote: Some('\''),
         span: token.span,
     }
@@ -659,7 +646,7 @@ fn parse_any_name<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Ident<'a>> {
         TokenKind::Word => {
             p.advance();
             Ok(Ident {
-                text: token.text,
+                text: token.text.into(),
                 quote: None,
                 span: token.span,
             })
@@ -904,7 +891,11 @@ fn parse_is<'a, D: Dialect>(
     let right = p.parse_expr_bp(bp)?;
     Ok(ExprKind::Binary {
         left: Box::new(left),
-        op: BinaryOp::Named(if negated { "IS NOT" } else { "IS" }),
+        op: BinaryOp::Named(if negated {
+            "IS NOT".into()
+        } else {
+            "IS".into()
+        }),
         right: Box::new(right),
     }
     .into())
@@ -1028,11 +1019,11 @@ fn parse_not_pattern<'a, D: Dialect>(
     p.advance();
     let token = p.advance();
     let op = if token.is_word("MATCH") {
-        BinaryOp::Named("NOT MATCH")
+        BinaryOp::Named("NOT MATCH".into())
     } else if token.is_word("GLOB") {
-        BinaryOp::Named("NOT GLOB")
+        BinaryOp::Named("NOT GLOB".into())
     } else {
-        BinaryOp::Named("NOT REGEXP")
+        BinaryOp::Named("NOT REGEXP".into())
     };
     let right = p.parse_expr_bp(bp)?;
     Ok(ExprKind::Binary {
@@ -1045,11 +1036,11 @@ fn parse_not_pattern<'a, D: Dialect>(
 
 fn pattern_op(word: &str) -> Option<BinaryOp<'static>> {
     if word.eq_ignore_ascii_case("MATCH") {
-        Some(BinaryOp::Named("MATCH"))
+        Some(BinaryOp::Named("MATCH".into()))
     } else if word.eq_ignore_ascii_case("GLOB") {
-        Some(BinaryOp::Named("GLOB"))
+        Some(BinaryOp::Named("GLOB".into()))
     } else if word.eq_ignore_ascii_case("REGEXP") {
-        Some(BinaryOp::Named("REGEXP"))
+        Some(BinaryOp::Named("REGEXP".into()))
     } else {
         None
     }
@@ -1073,8 +1064,8 @@ pub fn infix_rule<'a, D: Dialect<Ext = Builtin>>(p: &Parser<'a, D>) -> Option<In
                 "<<" => bit(BinaryOp::ShiftLeft),
                 ">>" => bit(BinaryOp::ShiftRight),
                 "||" => concat(BinaryOp::StringConcat),
-                "->" => concat(BinaryOp::Named("->")),
-                "->>" => concat(BinaryOp::Named("->>")),
+                "->" => concat(BinaryOp::Named("->".into())),
+                "->>" => concat(BinaryOp::Named("->>".into())),
                 "::" => {
                     let parse: InfixParseFn<'a, D> = postgres::parse_double_colon;
                     return Some(InfixRule::custom(prec::POSTFIX, parse));
@@ -1226,7 +1217,7 @@ pub fn parse_data_type<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<DataTyp
             qualifier: Vec::new(),
             name,
             angle: None,
-            args,
+            args: args.into_iter().map(Cow::Borrowed).collect(),
             suffix: DataTypeSuffix::SignedArgs(signs),
             array: ArrayType::None,
         });
@@ -1304,14 +1295,14 @@ pub fn parse_column_option<'a, D: Dialect>(
             return Err(p.expected("ROLLBACK, ABORT, FAIL, IGNORE or REPLACE"));
         };
         return Ok(Some(ColumnOption::Keyword {
-            keyword,
+            keyword: (*keyword).into(),
             expr: None,
         }));
     }
     for keyword in ["AUTOINCREMENT", "ASC", "DESC"] {
         if p.eat_keyword(keyword) {
             return Ok(Some(ColumnOption::Keyword {
-                keyword,
+                keyword: keyword.into(),
                 expr: None,
             }));
         }
@@ -1676,7 +1667,7 @@ pub fn parse_insert<'a, D: Dialect<Ext = Builtin>>(
             .into())
         }
         source => Ok(sqlite(SqliteStatement::Insert(Box::new(SqliteInsert {
-            or_action,
+            or_action: or_action.map(Cow::Borrowed),
             table,
             columns,
             source,
@@ -1733,7 +1724,7 @@ fn parse_update<'a, D: Dialect<Ext = Builtin>>(
         }
     }
     Ok(sqlite(SqliteStatement::Update(Box::new(SqliteUpdate {
-        or_action,
+        or_action: or_action.map(Cow::Borrowed),
         table,
         assignments,
         from,
@@ -1786,7 +1777,7 @@ fn parse_pragma_value<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Expr<'a,
         p.advance();
         return Ok(Expr::new(
             ExprKind::Ident(Ident {
-                text: token.text,
+                text: token.text.into(),
                 quote: None,
                 span: token.span,
             }),
@@ -1849,7 +1840,7 @@ fn parse_begin<'a, D: Dialect>(
     p.advance();
     let transaction_keyword = p.eat_keyword("TRANSACTION");
     SqliteStatement::Begin {
-        modifier,
+        modifier: modifier.into(),
         transaction_keyword,
     }
 }
@@ -1923,7 +1914,7 @@ impl Dialect for Sqlite {
 
     fn parse_drop_object_type<'a>(p: &mut Parser<'a, Self>) -> Option<ObjectType<'a>> {
         p.eat_keyword("TRIGGER")
-            .then_some(ObjectType::Named("TRIGGER"))
+            .then_some(ObjectType::Named("TRIGGER".into()))
     }
 
     fn parse_column_def<'a>(p: &mut Parser<'a, Self>) -> PResult<ColumnDef<'a, Builtin>> {
@@ -2170,7 +2161,7 @@ impl fmt::Display for OnConflict<'_> {
 impl fmt::Display for SqliteInsert<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("INSERT ")?;
-        write_or_action(f, self.or_action)?;
+        write_or_action(f, self.or_action.as_deref())?;
         write!(f, "INTO {}", self.table)?;
         if !self.columns.is_empty() {
             write!(f, " ({})", comma(&self.columns))?;
@@ -2191,7 +2182,7 @@ impl fmt::Display for SqliteInsert<'_> {
 impl fmt::Display for SqliteUpdate<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("UPDATE ")?;
-        write_or_action(f, self.or_action)?;
+        write_or_action(f, self.or_action.as_deref())?;
         self.table.fmt(f)?;
         write_list_clause(f, "SET", &self.assignments)?;
         write_list_clause(f, "FROM", &self.from)?;

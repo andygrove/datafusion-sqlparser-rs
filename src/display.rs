@@ -28,6 +28,7 @@
 use crate::ast::ExprKind;
 use crate::ast::SelectItemKind;
 use crate::ast::StatementKind;
+use std::borrow::Cow;
 use std::cell::Cell;
 use std::fmt::{Display, Formatter, Result};
 
@@ -222,7 +223,7 @@ impl Display for Ident<'_> {
         match self.quote {
             Some('[') => write!(f, "[{}]", self.text),
             Some(quote) => write!(f, "{quote}{}{quote}", self.text),
-            None => f.write_str(self.text),
+            None => f.write_str(&self.text),
         }
     }
 }
@@ -241,32 +242,32 @@ impl Display for Literal<'_> {
             Literal::DollarQuoted { tag, text } => write!(f, "${tag}${text}${tag}$"),
             Literal::Null => f.write_str("NULL"),
             Literal::Boolean(value) => write!(f, "{value}"),
-            Literal::String(string) if string.quote == '$' => {
-                write!(f, "$${}$$", string.text)
-            }
-            Literal::String(string) => {
-                if string.national {
-                    f.write_str("N")?;
-                }
-                match string.prefix {
-                    StringPrefix::None => {}
-                    StringPrefix::Byte => f.write_str("B")?,
-                    StringPrefix::Raw => f.write_str("R")?,
-                    StringPrefix::Escape => f.write_str("E")?,
-                    StringPrefix::Unicode => f.write_str("U&")?,
-                    StringPrefix::Bit => f.write_str("B")?,
-                }
-                let quote = string.quote;
-                if string.triple {
-                    write!(
-                        f,
-                        "{quote}{quote}{quote}{}{quote}{quote}{quote}",
-                        string.text
-                    )
-                } else {
-                    write!(f, "{quote}{}{quote}", string.text)
-                }
-            }
+            Literal::String(string) => string.fmt(f),
+        }
+    }
+}
+
+impl Display for StringLiteral<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        if self.quote == '$' {
+            return write!(f, "$${}$$", self.text);
+        }
+        if self.national {
+            f.write_str("N")?;
+        }
+        match self.prefix {
+            StringPrefix::None => {}
+            StringPrefix::Byte => f.write_str("B")?,
+            StringPrefix::Raw => f.write_str("R")?,
+            StringPrefix::Escape => f.write_str("E")?,
+            StringPrefix::Unicode => f.write_str("U&")?,
+            StringPrefix::Bit => f.write_str("B")?,
+        }
+        let quote = self.quote;
+        if self.triple {
+            write!(f, "{quote}{quote}{quote}{}{quote}{quote}{quote}", self.text)
+        } else {
+            write!(f, "{quote}{}{quote}", self.text)
         }
     }
 }
@@ -363,7 +364,7 @@ impl<X: AstExt> Display for ExprKind<'_, X> {
                 escape,
             } => {
                 (**expr).fmt(f)?;
-                write_like(f, pattern, *negated, *kind, escape.as_deref())
+                write_like(f, pattern, *negated, kind, escape.as_deref())
             }
             ExprKind::Between {
                 expr,
@@ -444,7 +445,7 @@ fn write_non_chain_expr<X: AstExt>(f: &mut Formatter<'_>, expr: &ExprKind<'_, X>
         ExprKind::Placeholder(text) => f.write_str(text),
         ExprKind::Interval(interval) => interval.fmt(f),
         ExprKind::TypedString(typed) => {
-            write!(f, "{} {}", typed.ty, Literal::String(typed.value))
+            write!(f, "{} {}", typed.ty, typed.value)
         }
         ExprKind::Special(special) => special.fmt(f),
         ExprKind::Compound(name) => name.fmt(f),
@@ -513,8 +514,8 @@ impl<X: AstExt> Display for SelectItemKind<'_, X> {
 
 impl<X: AstExt> Display for WildcardOptions<'_, X> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        if let Some(pattern) = self.ilike {
-            write!(f, " ILIKE {}", Literal::String(pattern))?;
+        if let Some(ref pattern) = self.ilike {
+            write!(f, " ILIKE {}", pattern)?;
         }
         if !self.exclude.is_empty() {
             if self.except_keyword {
@@ -688,10 +689,10 @@ impl<X: AstExt> Display for MatchRecognize<'_, X> {
         match self.after_match_skip {
             Some(AfterMatchSkip::PastLastRow) => f.write_str("AFTER MATCH SKIP PAST LAST ROW ")?,
             Some(AfterMatchSkip::ToNextRow) => f.write_str("AFTER MATCH SKIP TO NEXT ROW ")?,
-            Some(AfterMatchSkip::ToFirst(symbol)) => {
+            Some(AfterMatchSkip::ToFirst(ref symbol)) => {
                 write!(f, "AFTER MATCH SKIP TO FIRST {symbol} ")?;
             }
-            Some(AfterMatchSkip::ToLast(symbol)) => {
+            Some(AfterMatchSkip::ToLast(ref symbol)) => {
                 write!(f, "AFTER MATCH SKIP TO LAST {symbol} ")?;
             }
             None => {}
@@ -762,7 +763,7 @@ impl<X: AstExt> Display for SampleClause<'_, X> {
             "SAMPLE"
         };
         write!(f, "{keyword} ")?;
-        if let Some(method) = self.method {
+        if let Some(ref method) = self.method {
             write!(f, "{method} ")?;
         }
         if self.parenthesized {
@@ -772,7 +773,7 @@ impl<X: AstExt> Display for SampleClause<'_, X> {
         if self.parenthesized {
             f.write_str(")")?;
         }
-        if let Some(seed) = self.seed {
+        if let Some(ref seed) = self.seed {
             let keyword = if seed.repeatable {
                 "REPEATABLE"
             } else {
@@ -868,7 +869,7 @@ impl<X: AstExt> Display for Join<'_, X> {
         if matches!(self.constraint, JoinConstraint::Natural) {
             f.write_str("NATURAL ")?;
         }
-        f.write_str(match (self.kind, self.spelled_out) {
+        f.write_str(match (&self.kind, self.spelled_out) {
             (JoinKind::Custom(keywords), _) => keywords,
             (JoinKind::Inner, false) => "JOIN",
             (JoinKind::Inner, true) => "INNER JOIN",
@@ -956,7 +957,7 @@ impl<X: AstExt> Display for ListAggOnOverflow<'_, X> {
 impl<X: AstExt> Display for SelectInto<'_, X> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         f.write_str("INTO ")?;
-        if let Some(modifier) = self.modifier {
+        if let Some(ref modifier) = self.modifier {
             write!(f, "{modifier} ")?;
         }
         if self.table_keyword {
@@ -1040,7 +1041,7 @@ impl<X: AstExt> Display for OrderByItem<'_, X> {
 
 fn write_order_operator(f: &mut Formatter<'_>, name: &OperatorName<'_>) -> Result {
     if name.schema.is_empty() && !name.operator.contains(|c: char| c.is_alphabetic()) {
-        return f.write_str(name.operator);
+        return f.write_str(&name.operator);
     }
     f.write_str("OPERATOR(")?;
     for part in &name.schema {
@@ -1133,28 +1134,29 @@ fn write_unit(f: &mut Formatter<'_>, unit: &str) -> Result {
 impl<X: AstExt> Display for Interval<'_, X> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(f, "INTERVAL {}", self.value)?;
-        if let Some(field) = self.leading_field {
+        if let Some(ref field) = self.leading_field {
             f.write_str(" ")?;
             write_unit(f, field)?;
         }
         let is_second = self
             .leading_field
+            .as_ref()
             .is_some_and(|field| field.eq_ignore_ascii_case("SECOND"));
         if let (true, Some(leading), Some(fractional)) = (
             is_second,
-            self.leading_precision,
-            self.fractional_seconds_precision,
+            self.leading_precision.clone(),
+            self.fractional_seconds_precision.clone(),
         ) {
             return write!(f, " ({leading}, {fractional})");
         }
-        if let Some(precision) = self.leading_precision {
+        if let Some(ref precision) = self.leading_precision {
             write!(f, " ({precision})")?;
         }
-        if let Some(field) = self.last_field {
+        if let Some(ref field) = self.last_field {
             f.write_str(" TO ")?;
             write_unit(f, field)?;
         }
-        if let Some(precision) = self.fractional_seconds_precision {
+        if let Some(ref precision) = self.fractional_seconds_precision {
             write!(f, " ({precision})")?;
         }
         Ok(())
@@ -1331,9 +1333,13 @@ impl<X: AstExt> Display for SpecialExpr<'_, X> {
 
 impl<X: AstExt> Display for Query<'_, X> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        if !self.with.is_empty() {
-            f.write_str("WITH ")?;
-            comma(&self.with).fmt(f)?;
+        if let Some(with) = &self.with {
+            f.write_str(if with.recursive {
+                "WITH RECURSIVE "
+            } else {
+                "WITH "
+            })?;
+            comma(&with.ctes).fmt(f)?;
             SpaceOrNewline.fmt(f)?;
         }
         self.body.fmt(f)?;
@@ -1905,7 +1911,7 @@ impl Display for StructField<'_> {
             f.write_str(" NOT NULL")?;
         }
         if let Some(comment) = &self.comment {
-            write!(f, " COMMENT {}", Literal::String(*comment))?;
+            write!(f, " COMMENT {}", comment)?;
         }
         if !self.options.is_empty() {
             write!(f, " OPTIONS({})", comma(&self.options))?;
@@ -1998,7 +2004,7 @@ impl Display for DataType<'_> {
             DataTypeSuffix::Integer => " INTEGER",
             _ => "",
         })?;
-        let write_size = |f: &mut Formatter<'_>, size: &Option<&str>| match size {
+        let write_size = |f: &mut Formatter<'_>, size: &Option<Cow<'_, str>>| match size {
             Some(size) => write!(f, "[{size}]"),
             None => f.write_str("[]"),
         };
@@ -2100,7 +2106,7 @@ impl Display for ConstraintAttribute {
 
 impl Display for Tag<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "{}={}", self.name, Literal::String(self.value))
+        write!(f, "{}={}", self.name, self.value)
     }
 }
 
@@ -2153,7 +2159,7 @@ impl<X: AstExt> Display for ColumnOption<'_, X> {
                 let with = if *with { "WITH " } else { "" };
                 write!(f, "{with}TAG ({})", comma(tags))
             }
-            ColumnOption::Comment(text) => write!(f, "COMMENT {}", Literal::String(*text)),
+            ColumnOption::Comment(text) => write!(f, "COMMENT {}", text),
             ColumnOption::GenericOptions(options) => {
                 write!(f, "OPTIONS ({})", comma(options))
             }
@@ -2215,7 +2221,7 @@ impl Display for OperatorName<'_> {
         for part in &self.schema {
             write!(f, "{part}.")?;
         }
-        f.write_str(self.operator)
+        f.write_str(&self.operator)
     }
 }
 
@@ -2249,12 +2255,12 @@ impl<X: AstExt> Display for RangeBound<'_, X> {
 
 impl Display for GenericOption<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        if let Some(action) = self.action {
+        if let Some(ref action) = self.action {
             write!(f, "{action} ")?;
         }
         self.name.fmt(f)?;
-        if let Some(value) = self.value {
-            write!(f, " {}", Literal::String(value))?;
+        if let Some(ref value) = self.value {
+            write!(f, " {}", value)?;
         }
         Ok(())
     }
@@ -2424,14 +2430,14 @@ fn write_like<X: AstExt>(
     f: &mut Formatter<'_>,
     pattern: &Expr<'_, X>,
     negated: bool,
-    kind: LikeKind,
+    kind: &LikeKind<'_>,
     escape: Option<&Expr<'_, X>>,
 ) -> Result {
     let keyword = match kind {
         LikeKind::Like => "LIKE",
         LikeKind::ILike => "ILIKE",
         LikeKind::SimilarTo => "SIMILAR TO",
-        LikeKind::Named(name) => name,
+        LikeKind::Named(name) => name.as_ref(),
     };
     write!(f, " {}{keyword} {pattern}", not(negated))?;
     match escape {
@@ -2516,8 +2522,8 @@ fn write_function<X: AstExt>(
     if let Some(on_overflow) = &options.on_overflow {
         write!(f, " {on_overflow}")?;
     }
-    if let Some(separator) = options.separator {
-        write!(f, " SEPARATOR {}", Literal::String(separator))?;
+    if let Some(ref separator) = options.separator {
+        write!(f, " SEPARATOR {}", separator)?;
     }
     f.write_str(")")?;
     if !options.within_group.is_empty() {
@@ -2670,7 +2676,7 @@ impl Display for KeyOption<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
             KeyOption::Using(method) => write!(f, "USING {method}"),
-            KeyOption::Comment(text) => write!(f, "COMMENT {}", Literal::String(*text)),
+            KeyOption::Comment(text) => write!(f, "COMMENT {}", text),
         }
     }
 }
@@ -2681,7 +2687,7 @@ impl Display for ForeignKeyRef<'_> {
         if !self.columns.is_empty() {
             write!(f, " ({})", comma(&self.columns))?;
         }
-        if let Some(kind) = self.match_kind {
+        if let Some(ref kind) = self.match_kind {
             write!(f, " MATCH {kind}")?;
         }
         if let Some(action) = self.on_delete {
@@ -2704,7 +2710,7 @@ impl Display for DropObject<'_> {
             ObjectType::Schema => "SCHEMA",
             ObjectType::Database => "DATABASE",
             ObjectType::Sequence => "SEQUENCE",
-            ObjectType::Named(name) => name,
+            ObjectType::Named(ref name) => name,
         };
         let temporary = if self.temporary { "TEMPORARY " } else { "" };
         write!(f, "DROP {temporary}{object_type} ")?;
@@ -2719,7 +2725,7 @@ impl Display for DropObject<'_> {
 }
 
 /// Renders source words in upper case, separated by spaces.
-fn write_words(f: &mut Formatter<'_>, words: &[&str]) -> Result {
+fn write_words(f: &mut Formatter<'_>, words: &[Cow<'_, str>]) -> Result {
     for (i, word) in words.iter().enumerate() {
         if i > 0 {
             f.write_str(" ")?;
@@ -2925,7 +2931,7 @@ impl<X: AstExt> Display for MergeAction<'_, X> {
 
 impl<X: AstExt> Display for RoutineArg<'_, X> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        if let Some(mode) = self.mode {
+        if let Some(ref mode) = self.mode {
             write!(f, "{mode} ")?;
         }
         if let Some(name) = &self.name {
@@ -2967,12 +2973,12 @@ impl<X: AstExt> Display for ShowClause<'_, X> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
             ShowClause::History => f.write_str("HISTORY"),
-            ShowClause::Like(text) => write!(f, "LIKE {}", Literal::String(*text)),
+            ShowClause::Like(text) => write!(f, "LIKE {}", text),
             ShowClause::Where(expr) => write!(f, "WHERE {expr}"),
-            ShowClause::StartsWith(text) => write!(f, "STARTS WITH {}", Literal::String(*text)),
+            ShowClause::StartsWith(text) => write!(f, "STARTS WITH {}", text),
             ShowClause::Limit(expr) => write!(f, "LIMIT {expr}"),
-            ShowClause::Pattern(text) => Literal::String(*text).fmt(f),
-            ShowClause::FromValue(text) => write!(f, "FROM {}", Literal::String(*text)),
+            ShowClause::Pattern(text) => text.fmt(f),
+            ShowClause::FromValue(text) => write!(f, "FROM {}", text),
             ShowClause::Location { from, scope, name } => {
                 f.write_str(if *from { "FROM" } else { "IN" })?;
                 if let Some(scope) = scope {
@@ -3061,7 +3067,7 @@ impl Display for ExplainOption<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         self.name.fmt(f)?;
         match self.value {
-            Some(value) => write!(f, " {}{value}", self.sign),
+            Some(ref value) => write!(f, " {}{value}", self.sign),
             None => Ok(()),
         }
     }
@@ -3069,11 +3075,11 @@ impl Display for ExplainOption<'_> {
 
 impl<X: AstExt> Display for Explain<'_, X> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        f.write_str(self.keyword)?;
+        f.write_str(&self.keyword)?;
         if !self.options.is_empty() {
             write!(f, " ({})", comma(&self.options))?;
         }
-        if let Some(detail) = self.detail {
+        if let Some(ref detail) = self.detail {
             write!(f, " {detail}")?;
         }
         for (set, word) in [
@@ -3117,7 +3123,7 @@ fn write_scope(f: &mut Formatter<'_>, scope: Option<&str>) -> Result {
 
 impl<X: AstExt> Display for SetAssignment<'_, X> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write_scope(f, self.scope)?;
+        write_scope(f, self.scope.as_deref())?;
         write!(f, "{} = {}", self.name, self.value)
     }
 }
@@ -3131,20 +3137,20 @@ impl<X: AstExt> Display for SetStatement<'_, X> {
                 name,
                 values,
             } => {
-                write_scope(f, *scope)?;
+                write_scope(f, scope.as_deref())?;
                 write!(f, "{name} = {}", comma(values))
             }
             SetStatement::Assignments(assignments) => comma(assignments).fmt(f),
             SetStatement::Role { scope, role } => {
-                write_scope(f, *scope)?;
+                write_scope(f, scope.as_deref())?;
                 write!(f, "ROLE {role}")
             }
             SetStatement::Authorization { scope, user } => {
-                write_scope(f, *scope)?;
+                write_scope(f, scope.as_deref())?;
                 write!(f, "AUTHORIZATION {user}")
             }
             SetStatement::TimeZone { scope, value } => {
-                write_scope(f, *scope)?;
+                write_scope(f, scope.as_deref())?;
                 write!(f, "TIME ZONE {value}")
             }
             SetStatement::Transaction {
@@ -3158,7 +3164,7 @@ impl<X: AstExt> Display for SetStatement<'_, X> {
                     "TRANSACTION"
                 })?;
                 if let Some(snapshot) = snapshot {
-                    write!(f, " SNAPSHOT {}", Literal::String(*snapshot))?;
+                    write!(f, " SNAPSHOT {}", snapshot)?;
                 }
                 if !modes.is_empty() {
                     write!(f, " {}", comma(modes))?;
@@ -3183,8 +3189,8 @@ impl Display for CommentOn<'_> {
         f.write_str("ON ")?;
         write_words(f, &self.kind)?;
         write!(f, " {} IS ", self.name)?;
-        match self.comment {
-            Some(text) => Literal::String(text).fmt(f),
+        match &self.comment {
+            Some(text) => text.fmt(f),
             None => f.write_str("NULL"),
         }
     }
@@ -3366,7 +3372,7 @@ impl<X: AstExt> Display for AlterTableOp<'_, X> {
                 )?;
                 if let Some((set, path)) = location {
                     let set = if *set { "SET " } else { "" };
-                    write!(f, " {set}LOCATION {}", Literal::String(*path))?;
+                    write!(f, " {set}LOCATION {}", path)?;
                 }
                 Ok(())
             }

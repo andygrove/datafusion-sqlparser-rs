@@ -17,6 +17,7 @@
 
 //! `COPY`, cursors, `LOCK`, prepared statements and other utility statements.
 
+use std::borrow::Cow;
 use std::fmt;
 
 use crate::PResult;
@@ -35,7 +36,6 @@ use crate::parser::Parser;
 /// The source of `COPY`: a table with optional columns, or a query.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -53,7 +53,6 @@ pub enum CopySource<'a> {
 /// Where `COPY` reads or writes.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum CopyTarget<'a> {
     Stdin,
@@ -65,7 +64,6 @@ pub enum CopyTarget<'a> {
 /// One `(option value)` of the modern `COPY` option list.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum CopyOption<'a> {
     Format(Ident<'a>),
@@ -84,23 +82,21 @@ pub enum CopyOption<'a> {
 /// A keyword option of the legacy `COPY` syntax. Redshift's are of this form too.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct CopyLegacyOption<'a> {
-    pub keyword: &'a str,
+    pub keyword: Cow<'a, str>,
     pub value: CopyLegacyValue<'a>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum CopyLegacyValue<'a> {
     None,
     /// The word `DEFAULT` in place of a string.
     Default,
     String(StringLiteral<'a>),
-    Number(&'a str),
+    Number(Cow<'a, str>),
     /// `FORCE NOT NULL a, b` or `FORCE QUOTE a`.
     Force {
         not_null: bool,
@@ -109,7 +105,7 @@ pub enum CopyLegacyValue<'a> {
     /// An optional `PRESET` and a boolean word such as `ON`.
     Toggle {
         preset: bool,
-        word: Option<&'a str>,
+        word: Option<Cow<'a, str>>,
     },
 }
 
@@ -148,17 +144,15 @@ pub const LEGACY_OPTIONS: &[(&str, CopyLegacyKind)] = &[
 /// `COPY ... FROM STDIN` data that follows the statement.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct CopyPayload<'a> {
-    pub data: &'a str,
+    pub data: Cow<'a, str>,
     /// True if the `\.` terminator was present.
     pub terminated: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -179,7 +173,6 @@ pub struct Copy<'a> {
 /// A table named by `TRUNCATE` or `LOCK`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct TableItem<'a> {
     pub only: bool,
@@ -192,7 +185,6 @@ pub struct TableItem<'a> {
 /// `TRUNCATE` with clauses the core does not have.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct PostgresTruncate<'a> {
     pub table_keyword: bool,
@@ -204,7 +196,6 @@ pub struct PostgresTruncate<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -214,7 +205,7 @@ pub struct DeclareCursor<'a> {
     pub name: Ident<'a>,
     pub binary: bool,
     /// `ASENSITIVE` or `INSENSITIVE`.
-    pub sensitivity: Option<&'a str>,
+    pub sensitivity: Option<Cow<'a, str>>,
     /// `Some(true)` for `SCROLL`, `Some(false)` for `NO SCROLL`.
     pub scroll: Option<bool>,
     /// `Some(true)` for `WITH HOLD`, `Some(false)` for `WITHOUT HOLD`.
@@ -224,7 +215,6 @@ pub struct DeclareCursor<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum FetchDirection<'a> {
     Next,
@@ -232,23 +222,22 @@ pub enum FetchDirection<'a> {
     First,
     Last,
     All,
-    Count(&'a str),
-    Absolute(&'a str),
-    Relative(&'a str),
-    Forward(Option<&'a str>),
+    Count(Cow<'a, str>),
+    Absolute(Cow<'a, str>),
+    Relative(Cow<'a, str>),
+    Forward(Option<Cow<'a, str>>),
     ForwardAll,
-    Backward(Option<&'a str>),
+    Backward(Option<Cow<'a, str>>),
     BackwardAll,
 }
 
 /// `FETCH direction {IN | FROM} cursor [INTO target]`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct FetchStatement<'a> {
     pub direction: FetchDirection<'a>,
-    pub position: &'a str,
+    pub position: Cow<'a, str>,
     pub cursor: Ident<'a>,
     pub into: Option<ObjectName<'a>>,
 }
@@ -256,19 +245,17 @@ pub struct FetchStatement<'a> {
 /// `LOCK [TABLE] tables [IN mode MODE] [NOWAIT]`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct LockStatement<'a> {
     pub table_keyword: bool,
     pub tables: Vec<TableItem<'a>>,
-    pub mode: Option<&'a str>,
+    pub mode: Option<Cow<'a, str>>,
     pub nowait: bool,
 }
 
 /// `PREPARE name [(types)] AS statement`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -283,7 +270,6 @@ pub struct PrepareStatement<'a> {
 /// `EXECUTE name [(args)] [USING values]`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -298,7 +284,6 @@ pub struct ExecuteStatement<'a> {
 /// An item of a `DO` statement.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum DoItem<'a> {
     Language(Ident<'a>),
@@ -307,7 +292,6 @@ pub enum DoItem<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct AnalyzeTable<'a> {
     #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
@@ -403,14 +387,17 @@ fn parse_legacy_value<'a, D: Dialect<Ext = Builtin>>(
         }
         CopyLegacyKind::Number => {
             p.eat_keyword("AS");
-            grammar::parse_number_text(p).map(CopyLegacyValue::Number)
+            grammar::parse_number_text(p).map(|v| CopyLegacyValue::Number(v.into()))
         }
         CopyLegacyKind::Toggle => {
             let preset = p.eat_keyword("PRESET");
             let word = ["TRUE", "FALSE", "ON", "OFF"]
                 .into_iter()
                 .find(|word| p.eat_keyword(word));
-            Ok(CopyLegacyValue::Toggle { preset, word })
+            Ok(CopyLegacyValue::Toggle {
+                preset,
+                word: word.map(Cow::Borrowed),
+            })
         }
         CopyLegacyKind::Force => {
             let not_null = p.eat_keyword("NOT");
@@ -446,7 +433,10 @@ pub fn parse_legacy_options<'a, D: Dialect<Ext = Builtin>>(
         };
         p.advance();
         let value = parse_legacy_value(p, *kind)?;
-        options.push(CopyLegacyOption { keyword, value });
+        options.push(CopyLegacyOption {
+            keyword: (*keyword).into(),
+            value,
+        });
     }
     Ok(options)
 }
@@ -518,7 +508,7 @@ fn parse_copy_payload<'a, D: Dialect>(p: &mut Parser<'a, D>) -> Option<CopyPaylo
     let text = p.advance().text;
     Some(match text.strip_suffix("\\.") {
         Some(data) => CopyPayload {
-            data,
+            data: data.into(),
             terminated: true,
         },
         None => match text
@@ -526,11 +516,11 @@ fn parse_copy_payload<'a, D: Dialect>(p: &mut Parser<'a, D>) -> Option<CopyPaylo
             .or_else(|| text.strip_suffix("\\.\r\n"))
         {
             Some(data) => CopyPayload {
-                data,
+                data: data.into(),
                 terminated: true,
             },
             None => CopyPayload {
-                data: text,
+                data: text.into(),
                 terminated: false,
             },
         },
@@ -622,7 +612,7 @@ fn parse_declare<'a, D: Dialect<Ext = Builtin>>(
     Ok(PostgresStatement::Declare(Box::new(DeclareCursor {
         name,
         binary,
-        sensitivity,
+        sensitivity: sensitivity.map(Cow::Borrowed),
         scroll,
         hold,
         query: Box::new(query),
@@ -644,9 +634,9 @@ fn parse_fetch<'a, D: Dialect<Ext = Builtin>>(
     } else if p.eat_keyword("ALL") {
         FetchDirection::All
     } else if p.eat_keyword("ABSOLUTE") {
-        FetchDirection::Absolute(grammar::parse_number_text(p)?)
+        FetchDirection::Absolute(grammar::parse_number_text(p)?.into())
     } else if p.eat_keyword("RELATIVE") {
-        FetchDirection::Relative(grammar::parse_number_text(p)?)
+        FetchDirection::Relative(grammar::parse_number_text(p)?.into())
     } else if p.at_keyword("FORWARD") || p.at_keyword("BACKWARD") {
         let forward = p.at_keyword("FORWARD");
         p.advance();
@@ -663,13 +653,13 @@ fn parse_fetch<'a, D: Dialect<Ext = Builtin>>(
                 None
             };
             if forward {
-                FetchDirection::Forward(count)
+                FetchDirection::Forward(count.map(Cow::Borrowed))
             } else {
-                FetchDirection::Backward(count)
+                FetchDirection::Backward(count.map(Cow::Borrowed))
             }
         }
     } else {
-        FetchDirection::Count(grammar::parse_number_text(p)?)
+        FetchDirection::Count(grammar::parse_number_text(p)?.into())
     };
     let position = if p.eat_keyword("IN") {
         "IN"
@@ -685,7 +675,7 @@ fn parse_fetch<'a, D: Dialect<Ext = Builtin>>(
     };
     Ok(PostgresStatement::Fetch(Box::new(FetchStatement {
         direction,
-        position,
+        position: position.into(),
         cursor,
         into,
     })))
@@ -729,9 +719,27 @@ fn parse_lock<'a, D: Dialect<Ext = Builtin>>(
     Ok(PostgresStatement::Lock(Box::new(LockStatement {
         table_keyword,
         tables,
-        mode,
+        mode: mode.map(Cow::Borrowed),
         nowait,
     })))
+}
+
+/// Parses `PREPARE`, `EXECUTE` or `DEALLOCATE`, or returns `None` at anything
+/// else. DuckDB shares these with PostgreSQL.
+pub fn parse_prepared_statement<'a, D: Dialect<Ext = Builtin>>(
+    p: &mut Parser<'a, D>,
+) -> PResult<Option<PostgresStatement<'a>>> {
+    let token = p.peek();
+    let parsed = if token.is_word("PREPARE") {
+        parse_prepare(p)?
+    } else if token.is_word("EXECUTE") {
+        parse_execute(p)?
+    } else if token.is_word("DEALLOCATE") {
+        parse_deallocate(p)?
+    } else {
+        return Ok(None);
+    };
+    Ok(Some(parsed))
 }
 
 fn parse_prepare<'a, D: Dialect<Ext = Builtin>>(
@@ -905,12 +913,8 @@ pub fn parse_utility<'a, D: Dialect<Ext = Builtin>>(
         parse_fetch(p)?
     } else if token.is_word("LOCK") {
         parse_lock(p)?
-    } else if token.is_word("PREPARE") {
-        parse_prepare(p)?
-    } else if token.is_word("EXECUTE") {
-        parse_execute(p)?
-    } else if token.is_word("DEALLOCATE") {
-        parse_deallocate(p)?
+    } else if let Some(prepared) = parse_prepared_statement(p)? {
+        prepared
     } else if token.is_word("DO") {
         parse_do(p)?
     } else if token.is_word("ANALYZE") {
@@ -930,7 +934,7 @@ pub fn parse_utility<'a, D: Dialect<Ext = Builtin>>(
             return Err(p.expected("ALL, PLANS, SEQUENCES, TEMP or TEMPORARY"));
         }
         p.advance();
-        PostgresStatement::Discard(target.text)
+        PostgresStatement::Discard(target.text.into())
     } else if token.is_word("RESET") {
         parse_reset(p)?
     } else if token.is_word("CLOSE") {
@@ -961,26 +965,26 @@ impl fmt::Display for CopyOption<'_> {
         match self {
             CopyOption::Format(name) => write!(f, "FORMAT {name}"),
             CopyOption::Freeze(value) => flag(f, "FREEZE", value),
-            CopyOption::Delimiter(s) => write!(f, "DELIMITER {}", literal(*s)),
-            CopyOption::Null(s) => write!(f, "NULL {}", literal(*s)),
+            CopyOption::Delimiter(s) => write!(f, "DELIMITER {}", literal(s.clone())),
+            CopyOption::Null(s) => write!(f, "NULL {}", literal(s.clone())),
             CopyOption::Header(value) => flag(f, "HEADER", value),
-            CopyOption::Quote(s) => write!(f, "QUOTE {}", literal(*s)),
-            CopyOption::Escape(s) => write!(f, "ESCAPE {}", literal(*s)),
+            CopyOption::Quote(s) => write!(f, "QUOTE {}", literal(s.clone())),
+            CopyOption::Escape(s) => write!(f, "ESCAPE {}", literal(s.clone())),
             CopyOption::ForceQuote(columns) => write!(f, "FORCE_QUOTE ({})", comma(columns)),
             CopyOption::ForceNotNull(columns) => write!(f, "FORCE_NOT_NULL ({})", comma(columns)),
             CopyOption::ForceNull(columns) => write!(f, "FORCE_NULL ({})", comma(columns)),
-            CopyOption::Encoding(s) => write!(f, "ENCODING {}", literal(*s)),
+            CopyOption::Encoding(s) => write!(f, "ENCODING {}", literal(s.clone())),
         }
     }
 }
 
 impl fmt::Display for CopyLegacyOption<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.keyword)?;
+        f.write_str(&self.keyword)?;
         match &self.value {
             CopyLegacyValue::None => Ok(()),
             CopyLegacyValue::Default => f.write_str(" DEFAULT"),
-            CopyLegacyValue::String(s) => write!(f, " {}", Literal::String(*s)),
+            CopyLegacyValue::String(s) => write!(f, " {}", s),
             CopyLegacyValue::Number(n) => write!(f, " {n}"),
             CopyLegacyValue::Force { not_null, columns } => {
                 write!(
@@ -1019,8 +1023,8 @@ impl fmt::Display for Copy<'_> {
         match &self.target {
             CopyTarget::Stdin => f.write_str("STDIN")?,
             CopyTarget::Stdout => f.write_str("STDOUT")?,
-            CopyTarget::Program(command) => write!(f, "PROGRAM {}", Literal::String(*command))?,
-            CopyTarget::File(file) => Literal::String(*file).fmt(f)?,
+            CopyTarget::Program(command) => write!(f, "PROGRAM {}", command)?,
+            CopyTarget::File(file) => file.fmt(f)?,
         }
         if !self.options.is_empty() {
             write!(f, " ({})", comma(&self.options))?;
@@ -1030,7 +1034,7 @@ impl fmt::Display for Copy<'_> {
         }
         if let Some(payload) = &self.payload {
             f.write_str(";\n")?;
-            f.write_str(payload.data)?;
+            f.write_str(&payload.data)?;
             if payload.terminated {
                 f.write_str("\\.")?;
             }
@@ -1074,7 +1078,7 @@ impl fmt::Display for DeclareCursor<'_> {
         if self.binary {
             f.write_str(" BINARY")?;
         }
-        if let Some(sensitivity) = self.sensitivity {
+        if let Some(ref sensitivity) = self.sensitivity {
             write!(f, " {sensitivity}")?;
         }
         match self.scroll {
@@ -1130,7 +1134,7 @@ impl fmt::Display for FetchStatement<'_> {
 impl fmt::Display for LockStatement<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "LOCK TABLE {}", comma(&self.tables))?;
-        if let Some(mode) = self.mode {
+        if let Some(ref mode) = self.mode {
             write!(f, " IN {mode} MODE")?;
         }
         if self.nowait {

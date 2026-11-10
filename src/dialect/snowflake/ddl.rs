@@ -17,6 +17,7 @@
 
 //! Snowflake's table and database options, scripting and `DECLARE`.
 
+use std::borrow::Cow;
 use std::fmt::{self, Display};
 
 use super::{KeyValue, SnowflakeStatement, parse_key_value, parse_named_call, write_value};
@@ -36,7 +37,6 @@ use crate::parser::Parser;
 /// A `CREATE TABLE` using syntax the core statement cannot hold.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -45,10 +45,10 @@ use crate::parser::Parser;
 pub struct SnowflakeCreateTable<'a> {
     pub or_replace: bool,
     /// `LOCAL` or `GLOBAL`.
-    pub scope: Option<&'a str>,
+    pub scope: Option<Cow<'a, str>>,
     pub dynamic: bool,
     /// `TEMPORARY`, `VOLATILE`, `TRANSIENT` or `ICEBERG`.
-    pub lifetime: Option<&'a str>,
+    pub lifetime: Option<Cow<'a, str>>,
     pub if_not_exists: bool,
     #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
     pub name: ObjectName<'a>,
@@ -61,7 +61,6 @@ pub struct SnowflakeCreateTable<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -82,12 +81,12 @@ pub enum TableClause<'a> {
     Option(KeyValue<'a>),
     /// `WITH kind name [ON (columns)]`
     Policy {
-        kind: &'a str,
+        kind: Cow<'a, str>,
         name: ObjectName<'a>,
         on: Vec<Ident<'a>>,
     },
     Tags(Vec<Tag<'a>>),
-    OnCommit(&'a str),
+    OnCommit(Cow<'a, str>),
     RequireUser,
 }
 
@@ -107,7 +106,6 @@ impl TableClause<'_> {
 /// A `CREATE DATABASE` using syntax the core statement cannot hold.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct SnowflakeCreateDatabase<'a> {
     pub or_replace: bool,
@@ -119,7 +117,6 @@ pub struct SnowflakeCreateDatabase<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum DatabaseClause<'a> {
     Clone(ObjectName<'a>),
@@ -132,7 +129,6 @@ pub enum DatabaseClause<'a> {
 /// A `CREATE VIEW` using syntax the core statement cannot hold.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -158,7 +154,6 @@ pub struct SnowflakeCreateView<'a> {
 /// A column of a view, with its options.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -172,7 +167,6 @@ pub struct ViewColumn<'a> {
 /// The arguments of `SEMANTIC_VIEW(...)`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -190,7 +184,6 @@ pub struct SemanticView<'a> {
 /// `BEGIN ... [EXCEPTION ...] END`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -203,7 +196,6 @@ pub struct Block<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -216,7 +208,6 @@ pub struct ExceptionWhen<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -229,7 +220,6 @@ pub enum RaiseValue<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -242,7 +232,6 @@ pub struct Declaration<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -263,7 +252,6 @@ pub enum DeclarationKind<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -380,7 +368,11 @@ fn parse_policy_on<'a, D: Dialect<Ext = Builtin>>(
     let name = grammar::parse_object_name(p)?;
     p.expect_keyword("ON")?;
     let on = grammar::parse_ident_list(p)?;
-    Ok(TableClause::Policy { kind, name, on })
+    Ok(TableClause::Policy {
+        kind: kind.into(),
+        name,
+        on,
+    })
 }
 
 fn parse_on_commit<D: Dialect<Ext = Builtin>>(p: &mut Parser<'_, D>) -> PResult<&'static str> {
@@ -461,7 +453,7 @@ fn parse_table_clause<'a, D: Dialect<Ext = Builtin>>(
     } else if p.eat_keyword("AGGREGATION") {
         p.expect_keyword("POLICY")?;
         TableClause::Policy {
-            kind: "AGGREGATION POLICY",
+            kind: "AGGREGATION POLICY".into(),
             name: grammar::parse_object_name(p)?,
             on: Vec::new(),
         }
@@ -478,7 +470,7 @@ fn parse_table_clause<'a, D: Dialect<Ext = Builtin>>(
     } else if p.at_keyword("ON") && p.peek_nth(1).is_word("COMMIT") {
         p.advance();
         p.advance();
-        TableClause::OnCommit(parse_on_commit(p)?)
+        TableClause::OnCommit(parse_on_commit(p)?.into())
     } else if p.at_keyword("REQUIRE") && p.peek_nth(1).is_word("USER") {
         p.advance();
         p.advance();
@@ -575,9 +567,9 @@ pub fn parse_create_table<'a, D: Dialect<Ext = Builtin>>(
     }
     let create = SnowflakeCreateTable {
         or_replace,
-        scope,
+        scope: scope.map(Cow::Borrowed),
         dynamic,
-        lifetime,
+        lifetime: lifetime.map(Cow::Borrowed),
         if_not_exists,
         name,
         columns,
@@ -600,7 +592,7 @@ fn parse_contact<'a, D: Dialect<Ext = Builtin>>(
     if token.kind == TokenKind::String {
         p.advance();
         let contact = Ident {
-            text: &token.text[1..token.text.len() - 1],
+            text: Cow::Borrowed(&token.text[1..token.text.len() - 1]),
             quote: None,
             span: token.span,
         };
@@ -873,7 +865,7 @@ pub fn parse_column_option<'a, D: Dialect<Ext = Builtin>>(
         p.advance();
         let name = ObjectName {
             parts: vec![Ident {
-                text: &token.text[1..token.text.len() - 1],
+                text: Cow::Borrowed(&token.text[1..token.text.len() - 1]),
                 quote: Some('\''),
                 span: token.span,
             }],
@@ -925,8 +917,8 @@ fn parse_identity<'a, D: Dialect<Ext = Builtin>>(
         let increment = grammar::parse_number_text(p)?;
         p.expect_op(")")?;
         Some(IdentityParams {
-            seed,
-            increment,
+            seed: seed.into(),
+            increment: increment.into(),
             start_form: false,
         })
     } else if p.eat_keyword("START") {
@@ -934,8 +926,8 @@ fn parse_identity<'a, D: Dialect<Ext = Builtin>>(
         p.expect_keyword("INCREMENT")?;
         let increment = grammar::parse_number_text(p)?;
         Some(IdentityParams {
-            seed,
-            increment,
+            seed: seed.into(),
+            increment: increment.into(),
             start_form: true,
         })
     } else {
@@ -995,7 +987,7 @@ pub fn parse_alter_table_kind<'a, D: Dialect<Ext = Builtin>>(
         dynamic,
         if_exists,
         name,
-        action,
+        action: action.into(),
         subpath,
     })
 }
@@ -1224,7 +1216,7 @@ impl Display for SnowflakeCreateView<'_> {
             f.write_str(")")?;
         }
         if let Some(comment) = &self.comment {
-            write!(f, " COMMENT = {}", Literal::String(*comment))?;
+            write!(f, " COMMENT = {}", comment)?;
         }
         crate::display::write_view_query(f, &self.query)
     }
@@ -1268,7 +1260,7 @@ impl Display for TableClause<'_> {
             TableClause::CopyGrants => f.write_str("COPY GRANTS"),
             TableClause::Comment { equals, text } => {
                 let equals = if *equals { "= " } else { "" };
-                write!(f, "COMMENT {equals}{}", Literal::String(*text))
+                write!(f, "COMMENT {equals}{}", text)
             }
             TableClause::Clone(name) => write!(f, "CLONE {name}"),
             TableClause::Like(name) => write!(f, "LIKE {name}"),
@@ -1305,13 +1297,13 @@ impl Display for SnowflakeCreateTable<'_> {
         if self.or_replace {
             f.write_str("OR REPLACE ")?;
         }
-        if let Some(scope) = self.scope {
+        if let Some(ref scope) = self.scope {
             write!(f, "{scope} ")?;
         }
         if self.dynamic {
             f.write_str("DYNAMIC ")?;
         }
-        if let Some(lifetime) = self.lifetime {
+        if let Some(ref lifetime) = self.lifetime {
             write!(f, "{lifetime} ")?;
         }
         f.write_str("TABLE ")?;

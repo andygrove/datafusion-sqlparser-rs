@@ -107,7 +107,7 @@ fn drop_function_keeps_each_signature() {
     let args = drop.routines[0].args.as_ref().unwrap();
     assert_eq!(args[0].mode, None);
     assert_eq!(args[0].name, Some(ident("a")));
-    assert_eq!(args[1].mode, Some("OUT"));
+    assert_eq!(args[1].mode.as_deref(), Some("OUT"));
     assert_eq!(args[1].name, None);
     assert_eq!(drop.routines[1].name, object_name(&["g"]));
     assert_eq!(drop.routines[1].args, None);
@@ -162,7 +162,7 @@ fn show_separates_words_filters_and_locations() {
     };
     assert_eq!(pattern.text, "a");
     assert!(!from);
-    assert_eq!(*scope, Some("SCHEMA"));
+    assert_eq!(scope.as_deref(), Some("SCHEMA"));
     assert_eq!(name.as_ref(), Some(&object_name(&["s"])));
 }
 
@@ -174,7 +174,7 @@ fn transaction_statements_keep_their_details() {
     };
     assert_eq!(
         finish("BEGIN TRANSACTION"),
-        Transaction::Begin(Some("TRANSACTION"))
+        Transaction::Begin(Some("TRANSACTION".into()))
     );
     assert_eq!(
         finish("COMMIT AND CHAIN"),
@@ -211,7 +211,7 @@ fn set_tells_its_forms_apart() {
     assert_eq!(
         set_of::<Postgres>("SET LOCAL ROLE admin"),
         SetStatement::Role {
-            scope: Some("LOCAL"),
+            scope: Some("LOCAL".into()),
             role: c("admin")
         }
     );

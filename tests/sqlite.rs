@@ -763,7 +763,7 @@ fn precedence_shows_through_parentheses() {
     assert_eq!(op("a * b || c"), BinaryOp::Mul);
     // The pattern operators stay above AND and below string concatenation.
     assert_eq!(op("a REGEXP 'p' AND b = 1"), BinaryOp::And);
-    assert_eq!(op("a GLOB 'p' || 'q'"), BinaryOp::Named("GLOB"));
+    assert_eq!(op("a GLOB 'p' || 'q'"), BinaryOp::Named("GLOB".into()));
 }
 
 mod shape {
@@ -849,14 +849,14 @@ mod shape {
         assert_eq!(
             options[1],
             ColumnOption::Keyword {
-                keyword: "AUTOINCREMENT",
+                keyword: "AUTOINCREMENT".into(),
                 expr: None
             }
         );
         assert_eq!(
             options[2],
             ColumnOption::Keyword {
-                keyword: "ON CONFLICT FAIL",
+                keyword: "ON CONFLICT FAIL".into(),
                 expr: None
             }
         );
@@ -926,7 +926,7 @@ mod shape {
         let SqliteStatement::Insert(insert) = statement("REPLACE INTO t VALUES (1)") else {
             panic!("not INSERT");
         };
-        assert_eq!(insert.or_action, Some("REPLACE"));
+        assert_eq!(insert.or_action.as_deref(), Some("REPLACE"));
     }
 
     #[test]
@@ -936,7 +936,7 @@ mod shape {
         else {
             panic!("not an indexed table");
         };
-        assert_eq!(indexed.index.unwrap().text, "i");
+        assert_eq!(indexed.index.as_ref().unwrap().text, "i");
         assert_eq!(indexed.table.alias.as_ref().unwrap().name.text, "b");
     }
 
@@ -986,6 +986,6 @@ mod shape {
         let ExprKind::Binary { op, .. } = &expr.kind else {
             panic!("not binary");
         };
-        assert_eq!(*op, BinaryOp::Named("IS NOT"));
+        assert_eq!(*op, BinaryOp::Named("IS NOT".into()));
     }
 }

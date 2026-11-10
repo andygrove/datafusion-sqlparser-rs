@@ -284,7 +284,7 @@ fn hooked_field(ctx: &Context<'_>, ty: &Type, value: Tokens, hook: &Ident) -> To
             let index = Index::from(i);
             let reference = ctx.mode.reference();
             let part = quote!(#reference (*#value).#index);
-            if matches!(element, Type::Reference(_)) {
+            if is_text(element) {
                 visit_call(ctx, &part)
             } else {
                 hooked_field(ctx, element, part, hook)
@@ -506,4 +506,13 @@ fn variant_function(
             ::core::ops::ControlFlow::Continue(())
         }
     })
+}
+
+/// True for a string inside a tuple, which is never the hooked value.
+fn is_text(ty: &Type) -> bool {
+    match ty {
+        Type::Reference(_) => true,
+        Type::Path(path) => path.path.segments.last().is_some_and(|s| s.ident == "Cow"),
+        _ => false,
+    }
 }

@@ -17,6 +17,7 @@
 
 //! Databricks SQL, built on the Spark SQL rules.
 
+use std::borrow::Cow;
 use std::fmt;
 
 use crate::PResult;
@@ -43,7 +44,6 @@ pub struct Databricks;
 /// Statements only Databricks has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -51,7 +51,10 @@ pub struct Databricks;
 )]
 pub enum DatabricksStatement<'a> {
     /// `USE CATALOG name`, or the same with `DATABASE` or `SCHEMA`.
-    Use { kind: &'a str, name: ObjectName<'a> },
+    Use {
+        kind: Cow<'a, str>,
+        name: ObjectName<'a>,
+    },
     /// `OPTIMIZE table [WHERE predicate] [ZORDER BY (a, b)]`
     Optimize {
         #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
@@ -178,7 +181,10 @@ fn parse_use_of_kind<'a, D: Dialect<Ext = Builtin>>(
     p.advance();
     p.advance();
     let name = grammar::parse_use_name(p)?;
-    Ok(Some(DatabricksStatement::Use { kind, name }))
+    Ok(Some(DatabricksStatement::Use {
+        kind: kind.into(),
+        name,
+    }))
 }
 
 pub fn parse_statement<'a, D: Dialect<Ext = Builtin>>(
@@ -233,7 +239,7 @@ pub fn parse_table_factor<'a, D: Dialect>(
     };
     Ok(TableFactor::TimeTravel(Box::new(TimeTravel {
         name,
-        kind,
+        kind: kind.into(),
         at,
     })))
 }

@@ -553,12 +553,12 @@ fn view_ast_holds_each_clause() {
     assert_eq!(view.columns.len(), 1);
     assert_eq!(view.columns[0].name.text, "a");
     assert_eq!(view.columns[0].options.len(), 1);
-    assert_eq!(view.comment.as_ref().map(|c| c.text), Some("y"));
+    assert_eq!(view.comment.as_ref().map(|c| c.text.as_ref()), Some("y"));
 }
 
 // Names
 
-fn parts_of(sql: &str) -> Vec<&str> {
+fn parts_of(sql: &str) -> Vec<String> {
     let statement = parse_sql::<Snowflake>(sql).unwrap().remove(0);
     let name = match statement.kind {
         StatementKind::CreateTable(create) => create.name,
@@ -566,7 +566,10 @@ fn parts_of(sql: &str) -> Vec<&str> {
         StatementKind::CreateSchema(create) => create.name.unwrap(),
         other => panic!("unexpected statement: {other:?}"),
     };
-    name.parts.iter().map(|part| part.text).collect()
+    name.parts
+        .iter()
+        .map(|part| part.text.to_string())
+        .collect()
 }
 
 #[test]
@@ -842,7 +845,9 @@ fn alter_iceberg_round_trips() {
     assert_eq!(alter.name.parts[0].text, "tbl");
     assert!(matches!(
         alter.operations.as_slice(),
-        [AlterTableOp::Phrase("DROP CLUSTERING KEY")]
+        [AlterTableOp::Phrase(std::borrow::Cow::Borrowed(
+            "DROP CLUSTERING KEY"
+        ))]
     ));
     assert!(rejected("ALTER ICEBERG TABLE ONLY tbl DROP CLUSTERING KEY"));
     assert!(rejected("ALTER ICEBERG tbl DROP CLUSTERING KEY"));
@@ -996,9 +1001,9 @@ fn object_fields_keep_their_names() {
         panic!("not a structured type");
     };
     assert_eq!(fields.len(), 2);
-    assert_eq!(fields[0].name.unwrap().text, "city");
+    assert_eq!(fields[0].name.as_ref().unwrap().text, "city");
     assert!(!fields[0].not_null);
-    assert_eq!(fields[1].name.unwrap().text, "zip");
+    assert_eq!(fields[1].name.as_ref().unwrap().text, "zip");
     assert!(fields[1].not_null);
 }
 

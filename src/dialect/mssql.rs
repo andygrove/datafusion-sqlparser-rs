@@ -17,6 +17,7 @@
 
 //! Microsoft SQL Server (T-SQL).
 
+use std::borrow::Cow;
 use std::fmt::{self, Display as _};
 
 use crate::PResult;
@@ -46,7 +47,6 @@ pub struct MsSql;
 /// Statements only Microsoft SQL Server has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -56,7 +56,7 @@ pub enum MsSqlStatement<'a> {
     /// `BEGIN ... END` used as a statement.
     Block(Vec<Statement<'a, Builtin>>),
     /// `BEGIN TRY`, `END TRY`, `BEGIN CATCH` or `END CATCH`.
-    TryCatch(&'a str),
+    TryCatch(Cow<'a, str>),
     If(Box<MsSqlIf<'a>>),
     While(Box<MsSqlWhile<'a>>),
     /// `DECLARE item, ...`
@@ -96,7 +96,6 @@ pub enum MsSqlStatement<'a> {
 /// The statements in a `BEGIN ... END` block or a bare sequence.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -109,7 +108,6 @@ pub enum MsSqlBody<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -123,7 +121,6 @@ pub struct MsSqlIf<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -137,7 +134,6 @@ pub struct MsSqlWhile<'a> {
 /// One item of `DECLARE`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -153,7 +149,6 @@ pub struct MsSqlDeclare<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -164,18 +159,17 @@ pub struct MsSqlRaisError<'a> {
     pub severity: Expr<'a, Builtin>,
     pub state: Expr<'a, Builtin>,
     pub arguments: Vec<Expr<'a, Builtin>>,
-    pub options: Vec<&'a str>,
+    pub options: Vec<Cow<'a, str>>,
 }
 
 /// `FETCH [direction] {FROM | IN} name [INTO target]`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct MsSqlFetch<'a> {
     /// `NEXT`, `FORWARD ALL` and so on; empty for a bare count.
-    pub direction: &'a str,
-    pub count: Option<&'a str>,
+    pub direction: Cow<'a, str>,
+    pub count: Option<Cow<'a, str>>,
     pub from: bool,
     pub name: Ident<'a>,
     pub into: Option<ObjectName<'a>>,
@@ -183,7 +177,6 @@ pub struct MsSqlFetch<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -201,7 +194,6 @@ pub struct MsSqlExecute<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -218,7 +210,6 @@ pub struct MsSqlCreateProcedure<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -234,7 +225,6 @@ pub struct MsSqlCreateFunction<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -251,7 +241,6 @@ pub enum MsSqlReturns<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -267,7 +256,6 @@ pub enum MsSqlFunctionBody<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -279,14 +267,13 @@ pub struct MsSqlCreateTrigger<'a> {
     #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
     pub table: ObjectName<'a>,
     /// `FOR`, `AFTER`, `BEFORE` or `INSTEAD OF`.
-    pub period: &'a str,
+    pub period: Cow<'a, str>,
     pub events: Vec<MsSqlTriggerEvent<'a>>,
     pub body: MsSqlBody<'a>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum MsSqlTriggerEvent<'a> {
     Insert,
@@ -297,7 +284,6 @@ pub enum MsSqlTriggerEvent<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct MsSqlCreateRole<'a> {
     pub if_not_exists: bool,
@@ -307,7 +293,6 @@ pub struct MsSqlCreateRole<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct MsSqlAlterRole<'a> {
     pub name: Ident<'a>,
@@ -316,7 +301,6 @@ pub struct MsSqlAlterRole<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum MsSqlAlterRoleOp<'a> {
     AddMember(Ident<'a>),
@@ -326,7 +310,6 @@ pub enum MsSqlAlterRoleOp<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct MsSqlDeny<'a> {
     pub privileges: Privileges<'a>,
@@ -338,7 +321,6 @@ pub struct MsSqlDeny<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -347,11 +329,11 @@ pub struct MsSqlDeny<'a> {
 pub enum MsSqlSessionParam<'a> {
     /// `SET name, ... value`
     Generic {
-        names: Vec<&'a str>,
+        names: Vec<Cow<'a, str>>,
         value: Expr<'a, Builtin>,
     },
     /// `SET STATISTICS topic {ON | OFF}`
-    Statistics { topic: &'a str, on: bool },
+    Statistics { topic: Cow<'a, str>, on: bool },
     /// `SET IDENTITY_INSERT table {ON | OFF}`
     IdentityInsert {
         #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
@@ -359,12 +341,14 @@ pub enum MsSqlSessionParam<'a> {
         on: bool,
     },
     /// `SET OFFSETS keyword, ... {ON | OFF}`
-    Offsets { keywords: Vec<&'a str>, on: bool },
+    Offsets {
+        keywords: Vec<Cow<'a, str>>,
+        on: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -377,7 +361,6 @@ pub struct MsSqlCreateTable<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -396,7 +379,7 @@ pub enum MsSqlTableOption<'a> {
     /// `PARTITION (column RANGE [LEFT | RIGHT] FOR VALUES (...))`
     Partition {
         column: Ident<'a>,
-        direction: Option<&'a str>,
+        direction: Option<Cow<'a, str>>,
         values: Vec<Expr<'a, Builtin>>,
     },
 }
@@ -404,7 +387,6 @@ pub enum MsSqlTableOption<'a> {
 /// Expressions only Microsoft SQL Server has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -421,7 +403,6 @@ pub enum MsSqlExpr<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -435,7 +416,6 @@ pub struct MsSqlMethod<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -450,7 +430,6 @@ pub struct MsSqlConvert<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -460,12 +439,11 @@ pub struct MsSqlJsonCall<'a> {
     pub name: Ident<'a>,
     pub args: Vec<MsSqlJsonArg<'a>>,
     /// `ABSENT ON NULL` or `NULL ON NULL`.
-    pub null_clause: Option<&'a str>,
+    pub null_clause: Option<Cow<'a, str>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -480,7 +458,6 @@ pub enum MsSqlJsonArg<'a> {
 /// `TOP n` or `TOP (expr)`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -496,7 +473,6 @@ pub struct MsSqlTop<'a> {
 /// A table factor only Microsoft SQL Server has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -510,7 +486,6 @@ pub enum MsSqlTableFactor<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -524,7 +499,6 @@ pub struct MsSqlHintedTable<'a> {
 /// `OPENJSON(expr [, path]) [WITH (column, ...)]`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -538,7 +512,6 @@ pub struct MsSqlOpenJson<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct MsSqlOpenJsonColumn<'a> {
     pub name: Ident<'a>,
@@ -550,7 +523,6 @@ pub struct MsSqlOpenJsonColumn<'a> {
 /// `FOR XML`, `FOR JSON` or `FOR BROWSE` at the end of a query.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum MsSqlForClause<'a> {
     Browse,
@@ -560,11 +532,10 @@ pub enum MsSqlForClause<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct MsSqlForXml<'a> {
     /// `RAW`, `AUTO`, `EXPLICIT` or `PATH`.
-    pub mode: &'a str,
+    pub mode: Cow<'a, str>,
     pub mode_name: Option<StringLiteral<'a>>,
     pub elements: bool,
     pub binary_base64: bool,
@@ -574,11 +545,10 @@ pub struct MsSqlForXml<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct MsSqlForJson<'a> {
     /// `AUTO` or `PATH`.
-    pub mode: &'a str,
+    pub mode: Cow<'a, str>,
     pub root: Option<StringLiteral<'a>>,
     pub include_null_values: bool,
     pub without_array_wrapper: bool,
@@ -898,7 +868,7 @@ fn parse_raiserror<'a, D: Dialect<Ext = Builtin>>(
         severity,
         state,
         arguments,
-        options,
+        options: options.into_iter().map(Cow::Borrowed).collect(),
     })
 }
 
@@ -1004,8 +974,8 @@ fn parse_fetch<'a, D: Dialect<Ext = Builtin>>(
     };
     Ok(mssql_statement(MsSqlStatement::Fetch(Box::new(
         MsSqlFetch {
-            direction,
-            count,
+            direction: direction.into(),
+            count: count.map(Cow::Borrowed),
             from,
             name,
             into,
@@ -1169,7 +1139,7 @@ fn parse_session_value<'a, D: Dialect<Ext = Builtin>>(
         p.advance();
         return Ok(Expr::new(
             ExprKind::Ident(Ident {
-                text: token.text,
+                text: token.text.into(),
                 quote: None,
                 span: token.span,
             }),
@@ -1189,7 +1159,7 @@ fn parse_session_param<'a, D: Dialect<Ext = Builtin>>(
             .find(|topic| p.eat_keyword(topic))
             .ok_or_else(|| p.expected("IO, PROFILE, TIME or XML"))?;
         MsSqlSessionParam::Statistics {
-            topic,
+            topic: topic.into(),
             on: parse_on_off(p)?,
         }
     } else if p.eat_keyword("IDENTITY_INSERT") {
@@ -1201,13 +1171,16 @@ fn parse_session_param<'a, D: Dialect<Ext = Builtin>>(
     } else if p.eat_keyword("OFFSETS") {
         let keywords = p.parse_comma_separated(parse_session_word)?;
         MsSqlSessionParam::Offsets {
-            keywords,
+            keywords: keywords.into_iter().map(Cow::Borrowed).collect(),
             on: parse_on_off(p)?,
         }
     } else {
         let names = p.parse_comma_separated(parse_session_word)?;
         let value = parse_session_value(p)?;
-        MsSqlSessionParam::Generic { names, value }
+        MsSqlSessionParam::Generic {
+            names: names.into_iter().map(Cow::Borrowed).collect(),
+            value,
+        }
     };
     Ok(mssql_statement(MsSqlStatement::SessionParam(Box::new(
         param,
@@ -1238,7 +1211,7 @@ fn parse_routine_params<'a, D: Dialect<Ext = Builtin>>(
             None
         };
         Ok(RoutineArg {
-            mode,
+            mode: mode.map(Cow::Borrowed),
             name,
             data_type,
             default,
@@ -1389,7 +1362,7 @@ fn parse_create_trigger<'a, D: Dialect<Ext = Builtin>>(
             or_alter,
             name,
             table,
-            period,
+            period: period.into(),
             events,
             body,
         },
@@ -1466,7 +1439,7 @@ fn parse_partition_option<'a, D: Dialect<Ext = Builtin>>(
     p.expect_op(")")?;
     Ok(MsSqlTableOption::Partition {
         column,
-        direction,
+        direction: direction.map(Cow::Borrowed),
         values,
     })
 }
@@ -1556,13 +1529,13 @@ pub fn parse_statement<'a, D: Dialect<Ext = Builtin>>(
             return Ok(mssql_statement(MsSqlStatement::Block(statements)));
         }
         if let Some(marker) = parse_try_catch(p) {
-            return Ok(mssql_statement(MsSqlStatement::TryCatch(marker)));
+            return Ok(mssql_statement(MsSqlStatement::TryCatch(marker.into())));
         }
         return grammar::parse_statement(p);
     }
     if p.at_keyword("END") {
         if let Some(marker) = parse_try_catch(p) {
-            return Ok(mssql_statement(MsSqlStatement::TryCatch(marker)));
+            return Ok(mssql_statement(MsSqlStatement::TryCatch(marker.into())));
         }
         return grammar::parse_statement(p);
     }
@@ -1666,7 +1639,7 @@ fn parse_top<'a, D: Dialect<Ext = Builtin>>(p: &mut Parser<'a, D>) -> PResult<Ms
     } else {
         let token = p.expect_kind(TokenKind::Number, "a number after TOP")?;
         Expr::new(
-            ExprKind::Literal(crate::ast::Literal::Number(token.text)),
+            ExprKind::Literal(crate::ast::Literal::Number(token.text.into())),
             token.span,
         )
     };
@@ -1709,7 +1682,7 @@ fn parse_string_alias<'a, D: Dialect>(p: &mut Parser<'a, D>) -> Option<Ident<'a>
     }
     p.advance();
     Some(Ident {
-        text: &token.text[1..token.text.len() - 1],
+        text: Cow::Borrowed(&token.text[1..token.text.len() - 1]),
         quote: Some('\''),
         span: token.span,
     })
@@ -1771,7 +1744,7 @@ pub fn parse_data_type<'a, D: Dialect<Ext = Builtin>>(
             qualifier: Vec::new(),
             name,
             angle: None,
-            args: vec![max.text],
+            args: vec![max.text.into()],
             suffix: DataTypeSuffix::None,
             array: crate::ast::ArrayType::None,
         });
@@ -1792,8 +1765,8 @@ pub fn parse_column_option<'a, D: Dialect<Ext = Builtin>>(
         let increment = grammar::parse_number_text(p)?;
         p.expect_op(")")?;
         Some(IdentityParams {
-            seed,
-            increment,
+            seed: seed.into(),
+            increment: increment.into(),
             start_form: false,
         })
     } else {
@@ -1880,7 +1853,7 @@ fn parse_json_call<'a, D: Dialect<Ext = Builtin>>(
             MsSqlJsonCall {
                 name,
                 args,
-                null_clause,
+                null_clause: null_clause.map(Cow::Borrowed),
             },
         ))))
         .into(),
@@ -1894,7 +1867,7 @@ pub fn parse_function_call<'a, D: Dialect<Ext = Builtin>>(
     if let [only] = name.parts.as_slice()
         && only.quote.is_none()
     {
-        let text = only.text;
+        let text = &only.text;
         let type_first = matches!(p.peek_nth(1).kind, TokenKind::Word | TokenKind::QuotedIdent);
         // A literal first argument is an ordinary call, as in the original.
         if type_first && text.eq_ignore_ascii_case("CONVERT") {
@@ -1904,7 +1877,7 @@ pub fn parse_function_call<'a, D: Dialect<Ext = Builtin>>(
             return parse_convert(p, true);
         }
         if text.eq_ignore_ascii_case("JSON_OBJECT") || text.eq_ignore_ascii_case("JSON_ARRAY") {
-            return parse_json_call(p, *only);
+            return parse_json_call(p, only.clone());
         }
     }
     grammar::parse_function_call(p, name)
@@ -1951,7 +1924,7 @@ pub fn infix_rule<'a, D: Dialect<Ext = Builtin>>(p: &Parser<'a, D>) -> Option<In
 fn parse_keyword_name<'a, D: Dialect>(p: &mut Parser<'a, D>) -> Ident<'a> {
     let token = p.advance();
     Ident {
-        text: token.text,
+        text: token.text.into(),
         quote: None,
         span: token.span,
     }
@@ -1967,7 +1940,7 @@ fn parse_double_dot_name<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Objec
     let mut parts = vec![p.parse_ident()?];
     p.expect_op(".")?;
     parts.push(Ident {
-        text: "",
+        text: "".into(),
         quote: None,
         span: Span::default(),
     });
@@ -2063,7 +2036,7 @@ pub fn parse_table_factor<'a, D: Dialect<Ext = Builtin>>(
         let at = p.parse_expr()?;
         return Ok(TableFactor::TimeTravel(Box::new(TimeTravel {
             name,
-            kind: "FOR SYSTEM_TIME",
+            kind: "FOR SYSTEM_TIME".into(),
             at,
         })));
     }
@@ -2107,9 +2080,9 @@ pub fn parse_join<'a, D: Dialect<Ext = Builtin>>(
         return grammar::parse_join(p);
     }
     let kind = if p.at_keyword("CROSS") {
-        JoinKind::Custom("CROSS APPLY")
+        JoinKind::Custom("CROSS APPLY".into())
     } else {
-        JoinKind::Custom("OUTER APPLY")
+        JoinKind::Custom("OUTER APPLY".into())
     };
     p.advance();
     p.advance();
@@ -2162,7 +2135,7 @@ fn parse_for_xml<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<MsSqlForXml<'
         None
     };
     let mut clause = MsSqlForXml {
-        mode,
+        mode: mode.into(),
         mode_name,
         elements: false,
         binary_base64: false,
@@ -2194,7 +2167,7 @@ fn parse_for_json<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<MsSqlForJson
         "PATH"
     };
     let mut clause = MsSqlForJson {
-        mode,
+        mode: mode.into(),
         root: None,
         include_null_values: false,
         without_array_wrapper: false,
@@ -2264,9 +2237,9 @@ pub fn parse_prefix<'a, D: Dialect<Ext = Builtin>>(
         {
             p.advance();
             p.advance();
-            return Ok(ExprKind::Placeholder(
+            return Ok(ExprKind::Placeholder(Cow::Borrowed(
                 &p.source()[token.span.start as usize..next.span.end as usize],
-            )
+            ))
             .into());
         }
     }
@@ -2289,6 +2262,11 @@ pub fn is_reserved_for_alias(word: &str) -> bool {
 }
 
 impl Dialect for MsSql {
+    /// Recursive CTEs need no keyword here, and `RECURSIVE` is rejected.
+    fn eat_with_recursive<'a>(_p: &mut Parser<'a, Self>) -> bool {
+        false
+    }
+
     type Ext = Builtin;
 
     fn parse_update_from_after_set<'a>(
@@ -2565,7 +2543,7 @@ impl fmt::Display for MsSqlRaisError<'_> {
 impl fmt::Display for MsSqlFetch<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("FETCH ")?;
-        match (self.direction, self.count) {
+        match (self.direction.as_ref(), &self.count) {
             ("", Some(count)) => write!(f, "{count} ")?,
             (direction, Some(count)) => write!(f, "{direction} {count} ")?,
             (direction, None) => write!(f, "{direction} ")?,
@@ -2899,7 +2877,7 @@ impl fmt::Display for MsSqlJsonArg<'_> {
 impl fmt::Display for MsSqlJsonCall<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}({}", self.name, comma(&self.args))?;
-        if let Some(clause) = self.null_clause {
+        if let Some(ref clause) = self.null_clause {
             if !self.args.is_empty() {
                 f.write_str(" ")?;
             }

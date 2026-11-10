@@ -59,7 +59,7 @@ growing_serialize!(
 
 macro_rules! growing_deserialize {
     ($(impl[$($generics:tt)*] $ty:ty $(where $bound:ty)?),* $(,)?) => {$(
-        impl<'de: 'a, 'a $(, $generics)*> Deserialize<'de> for $ty
+        impl<'de, 'a $(, $generics)*> Deserialize<'de> for $ty
         $(where $bound: DeserializeExt<'de, 'a>)?
         {
             fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {

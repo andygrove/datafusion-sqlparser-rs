@@ -17,6 +17,7 @@
 
 //! MySQL statements and table factors the core does not have.
 
+use std::borrow::Cow;
 use std::fmt;
 
 use super::{parse_user_host, string_ident};
@@ -42,7 +43,6 @@ fn mysql<'a>(statement: MySqlStatement<'a>) -> Statement<'a, Builtin> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -60,8 +60,8 @@ pub enum MySqlStatement<'a> {
     Flush(Box<MySqlFlush<'a>>),
     /// `KILL [CONNECTION | QUERY] id`
     Kill {
-        modifier: Option<&'a str>,
-        id: &'a str,
+        modifier: Option<Cow<'a, str>>,
+        id: Cow<'a, str>,
     },
     Insert(Box<MySqlInsert<'a>>),
     CreateTable(Box<MySqlCreateTable<'a>>),
@@ -72,7 +72,6 @@ pub enum MySqlStatement<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct MySqlLockedTable<'a> {
     #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
@@ -91,13 +90,12 @@ pub enum MySqlLock {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct MySqlFlush<'a> {
     /// `NO_WRITE_TO_BINLOG` or `LOCAL`.
-    pub location: Option<&'a str>,
+    pub location: Option<Cow<'a, str>>,
     /// What is flushed, such as `RELAY LOGS` or `TABLES`.
-    pub object: &'a str,
+    pub object: Cow<'a, str>,
     /// The channel in `RELAY LOGS FOR CHANNEL name`.
     pub channel: Option<ObjectName<'a>>,
     #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
@@ -109,7 +107,6 @@ pub struct MySqlFlush<'a> {
 /// `INSERT` or `REPLACE`, with what MySQL adds after its source.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -127,7 +124,6 @@ pub struct MySqlInsert<'a> {
 /// Table options such as `ENGINE = InnoDB`, which come before any `AS`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -140,7 +136,6 @@ pub struct MySqlCreateTable<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -149,7 +144,7 @@ pub struct MySqlCreateTable<'a> {
 pub enum MySqlTableOption<'a> {
     /// A keyword or words and a value, always rendered with `=`.
     KeyValue {
-        name: &'a str,
+        name: Cow<'a, str>,
         value: Expr<'a, Builtin>,
     },
     /// `COMMENT [=] 'text'`
@@ -164,7 +159,7 @@ pub enum MySqlTableOption<'a> {
     /// `TABLESPACE name [STORAGE {DISK | MEMORY}]`
     Tablespace {
         name: Ident<'a>,
-        storage: Option<&'a str>,
+        storage: Option<Cow<'a, str>>,
     },
     /// `UNION [=] (a, b)`
     Union(Vec<Ident<'a>>),
@@ -173,7 +168,6 @@ pub enum MySqlTableOption<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct MySqlCreateDatabase<'a> {
     pub if_not_exists: bool,
@@ -184,7 +178,6 @@ pub struct MySqlCreateDatabase<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -192,16 +185,15 @@ pub struct MySqlCreateDatabase<'a> {
 )]
 pub struct MySqlCreateView<'a> {
     /// `UNDEFINED`, `MERGE` or `TEMPTABLE`.
-    pub algorithm: Option<&'a str>,
+    pub algorithm: Option<Cow<'a, str>>,
     pub definer: Option<Grantee<'a>>,
     /// `DEFINER` or `INVOKER`.
-    pub security: Option<&'a str>,
+    pub security: Option<Cow<'a, str>>,
     pub view: Box<CreateView<'a, Builtin>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -212,19 +204,18 @@ pub struct MySqlCreateTrigger<'a> {
     pub if_not_exists: bool,
     pub name: ObjectName<'a>,
     /// `BEFORE` or `AFTER`.
-    pub period: &'a str,
+    pub period: Cow<'a, str>,
     /// `INSERT`, `UPDATE` or `DELETE`.
-    pub event: &'a str,
+    pub event: Cow<'a, str>,
     #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
     pub table: ObjectName<'a>,
     /// `FOLLOWS` or `PRECEDES` and the other trigger.
-    pub order: Option<(&'a str, ObjectName<'a>)>,
+    pub order: Option<(Cow<'a, str>, ObjectName<'a>)>,
     pub body: MySqlTriggerBody<'a>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -238,7 +229,6 @@ pub enum MySqlTriggerBody<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -261,22 +251,20 @@ pub enum MySqlTableFactor<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct MySqlIndexHint<'a> {
     /// `USE`, `IGNORE` or `FORCE`.
-    pub verb: &'a str,
+    pub verb: Cow<'a, str>,
     /// True if written `KEY` rather than `INDEX`.
     pub key: bool,
     /// `JOIN`, `ORDER BY` or `GROUP BY`.
-    pub target: Option<&'a str>,
+    pub target: Option<Cow<'a, str>>,
     pub names: Vec<Ident<'a>>,
 }
 
 /// `JSON_TABLE(json, path COLUMNS(...))`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -290,7 +278,6 @@ pub struct MySqlJsonTable<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum MySqlJsonColumn<'a> {
     /// `name FOR ORDINALITY`
@@ -306,7 +293,6 @@ pub enum MySqlJsonColumn<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct MySqlJsonNamedColumn<'a> {
     pub name: Ident<'a>,
@@ -320,7 +306,6 @@ pub struct MySqlJsonNamedColumn<'a> {
 /// What a `JSON_TABLE` column does when its path finds nothing or fails.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum MySqlJsonFallback<'a> {
     Null,
@@ -436,15 +421,15 @@ fn parse_flush<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<MySqlFlush<'a>>
         None
     };
     let mut flush = MySqlFlush {
-        location,
-        object: "",
+        location: location.map(Cow::Borrowed),
+        object: "".into(),
         channel: None,
         tables: Vec::new(),
         read_lock: false,
         export: false,
     };
     if p.eat_keyword("TABLES") {
-        flush.object = "TABLES";
+        flush.object = "TABLES".into();
         if p.at_ident() && !p.at_keyword("WITH") && !p.at_keyword("FOR") {
             flush.tables = p.parse_comma_separated(grammar::parse_object_name)?;
         }
@@ -461,7 +446,7 @@ fn parse_flush<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<MySqlFlush<'a>>
     if let Some(&(first, object)) = FLUSH_LOG_KINDS.iter().find(|(word, _)| p.at_keyword(word)) {
         p.advance();
         p.expect_keyword("LOGS")?;
-        flush.object = object;
+        flush.object = object.into();
         if first == "RELAY" && p.eat_keyword("FOR") {
             p.expect_keyword("CHANNEL")?;
             flush.channel = Some(grammar::parse_object_name(p)?);
@@ -472,7 +457,7 @@ fn parse_flush<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<MySqlFlush<'a>>
         return Err(p.expected("something to flush"));
     };
     p.advance();
-    flush.object = word;
+    flush.object = (*word).into();
     Ok(flush)
 }
 
@@ -487,7 +472,10 @@ fn parse_kill<'a, D: Dialect<Ext = Builtin>>(
         None
     };
     let id = grammar::parse_number_text(p)?;
-    Ok(mysql(MySqlStatement::Kill { modifier, id }))
+    Ok(mysql(MySqlStatement::Kill {
+        modifier: modifier.map(Cow::Borrowed),
+        id: id.into(),
+    }))
 }
 
 fn parse_replace<'a, D: Dialect<Ext = Builtin>>(
@@ -589,9 +577,9 @@ pub fn parse_create<'a, D: Dialect<Ext = Builtin>>(
     let view = Box::new(D::parse_create_view(p, flags)?);
     Ok(mysql(MySqlStatement::CreateView(Box::new(
         MySqlCreateView {
-            algorithm,
+            algorithm: algorithm.map(Cow::Borrowed),
             definer,
-            security,
+            security: security.map(Cow::Borrowed),
             view,
         },
     ))))
@@ -677,10 +665,10 @@ fn parse_create_trigger<'a, D: Dialect<Ext = Builtin>>(
             definer,
             if_not_exists,
             name,
-            period,
-            event,
+            period: period.into(),
+            event: event.into(),
             table,
-            order,
+            order: order.map(|(kind, name)| (kind.into(), name)),
             body,
         },
     ))))
@@ -813,7 +801,10 @@ fn parse_table_option<'a, D: Dialect<Ext = Builtin>>(
         } else {
             None
         };
-        return Ok(Some(MySqlTableOption::Tablespace { name, storage }));
+        return Ok(Some(MySqlTableOption::Tablespace {
+            name,
+            storage: storage.map(Cow::Borrowed),
+        }));
     }
     if p.at_keyword("UNION") && (next.is_op("=") || next.is_op("(")) {
         p.advance();
@@ -831,7 +822,10 @@ fn parse_table_option<'a, D: Dialect<Ext = Builtin>>(
             }
             p.eat_op("=");
             let value = p.spanned_expr(parse_option_value)?;
-            return Ok(Some(MySqlTableOption::KeyValue { name, value }));
+            return Ok(Some(MySqlTableOption::KeyValue {
+                name: name.into(),
+                value,
+            }));
         }
     }
     Ok(None)
@@ -845,7 +839,7 @@ fn parse_option_value<'a, D: Dialect<Ext = Builtin>>(
     match token.kind {
         TokenKind::Number => {
             p.advance();
-            Ok(ExprKind::Literal(Literal::Number(token.text)).into())
+            Ok(ExprKind::Literal(Literal::Number(token.text.into())).into())
         }
         TokenKind::String => {
             p.advance();
@@ -998,7 +992,7 @@ fn finish_key<'a>(
         return plain(names);
     }
     TableConstraintKind::Key {
-        keyword,
+        keyword: keyword.into(),
         name,
         using,
         columns,
@@ -1073,7 +1067,7 @@ pub fn parse_table_constraint<'a, D: Dialect<Ext = Builtin>>(
             let options = parse_key_options(p)?;
             if had_keyword || index.is_some() || using.is_some() {
                 TableConstraintKind::Key {
-                    keyword,
+                    keyword: keyword.into(),
                     name: index,
                     using,
                     columns,
@@ -1123,7 +1117,7 @@ pub fn parse_table_constraint<'a, D: Dialect<Ext = Builtin>>(
         let columns = parse_key_parts(p)?;
         let options = parse_key_options(p)?;
         TableConstraintKind::Key {
-            keyword,
+            keyword: keyword.into(),
             name: index,
             using,
             columns,
@@ -1146,7 +1140,7 @@ pub fn parse_table_constraint<'a, D: Dialect<Ext = Builtin>>(
         let index = parse_key_name(p)?;
         let columns = parse_key_parts(p)?;
         TableConstraintKind::Key {
-            keyword,
+            keyword: keyword.into(),
             name: index,
             using: None,
             columns,
@@ -1305,10 +1299,10 @@ impl fmt::Display for MySqlLockedTable<'_> {
 impl fmt::Display for MySqlFlush<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("FLUSH ")?;
-        if let Some(location) = self.location {
+        if let Some(ref location) = self.location {
             write!(f, "{location} ")?;
         }
-        f.write_str(self.object)?;
+        f.write_str(&self.object)?;
         if let Some(channel) = &self.channel {
             write!(f, " FOR CHANNEL {channel}")?;
         }
@@ -1347,7 +1341,7 @@ impl fmt::Display for MySqlTableOption<'_> {
             Self::KeyValue { name, value } => write!(f, "{name} = {value}"),
             Self::Comment { equals, text } => {
                 let equals = if *equals { "= " } else { "" };
-                write!(f, "COMMENT {equals}{}", Literal::String(*text))
+                write!(f, "COMMENT {equals}{}", text)
             }
             Self::Engine(name) => write!(f, "ENGINE = {name}"),
             Self::Like(source) => write!(f, "LIKE {source}"),
@@ -1421,7 +1415,12 @@ impl fmt::Display for MySqlCreateView<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let view = &self.view;
         write_create_flags(f, view.or_replace, view.temporary)?;
-        write_view_params(f, self.algorithm, self.definer.as_ref(), self.security)?;
+        write_view_params(
+            f,
+            self.algorithm.as_deref(),
+            self.definer.as_ref(),
+            self.security.as_deref(),
+        )?;
         if view.materialized {
             f.write_str("MATERIALIZED ")?;
         }
@@ -1488,7 +1487,7 @@ impl fmt::Display for MySqlIndexHint<'_> {
             self.verb,
             if self.key { "KEY" } else { "INDEX" }
         )?;
-        if let Some(target) = self.target {
+        if let Some(ref target) = self.target {
             write!(f, " FOR {target}")?;
         }
         write!(f, " ({})", comma(&self.names))
@@ -1502,7 +1501,7 @@ impl fmt::Display for MySqlJsonTable<'_> {
                 f,
                 "JSON_TABLE({}, {} COLUMNS({}))",
                 self.json,
-                Literal::String(self.path),
+                self.path,
                 comma(&self.columns)
             );
         }
@@ -1521,7 +1520,7 @@ impl fmt::Display for JsonTableArguments<'_, '_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{},", self.0.json)?;
         SpaceOrNewline.fmt(f)?;
-        write!(f, "{} COLUMNS (", Literal::String(self.0.path))?;
+        write!(f, "{} COLUMNS (", self.0.path)?;
         NewLine.fmt(f)?;
         Indent(CommaLines(&self.0.columns)).fmt(f)?;
         NewLine.fmt(f)?;
@@ -1534,12 +1533,7 @@ impl fmt::Display for MySqlJsonColumn<'_> {
         match self {
             Self::Ordinality(name) => write!(f, "{name} FOR ORDINALITY"),
             Self::Nested { path, columns } => {
-                write!(
-                    f,
-                    "NESTED PATH {} COLUMNS ({})",
-                    Literal::String(*path),
-                    comma(columns)
-                )
+                write!(f, "NESTED PATH {} COLUMNS ({})", path, comma(columns))
             }
             Self::Named(column) => column.fmt(f),
         }
@@ -1552,7 +1546,7 @@ impl fmt::Display for MySqlJsonNamedColumn<'_> {
         if self.exists {
             f.write_str(" EXISTS")?;
         }
-        write!(f, " PATH {}", Literal::String(self.path))?;
+        write!(f, " PATH {}", self.path)?;
         if let Some(fallback) = &self.on_empty {
             write!(f, " {fallback} ON EMPTY")?;
         }
@@ -1568,7 +1562,7 @@ impl fmt::Display for MySqlJsonFallback<'_> {
         match self {
             Self::Null => f.write_str("NULL"),
             Self::Error => f.write_str("ERROR"),
-            Self::Default(value) => write!(f, "DEFAULT {}", Literal::String(*value)),
+            Self::Default(value) => write!(f, "DEFAULT {}", value),
         }
     }
 }

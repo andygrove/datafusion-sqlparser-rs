@@ -145,6 +145,18 @@ impl<'a, X: AstExt> VisitMut<'a, X> for &str {
     }
 }
 
+impl<'a, X: AstExt> Visit<'a, X> for std::borrow::Cow<'_, str> {
+    fn visit<V: Visitor<'a, X>>(&self, _visitor: &mut V) -> ControlFlow<V::Break> {
+        ControlFlow::Continue(())
+    }
+}
+
+impl<'a, X: AstExt> VisitMut<'a, X> for std::borrow::Cow<'_, str> {
+    fn visit<V: VisitorMut<'a, X>>(&mut self, _visitor: &mut V) -> ControlFlow<V::Break> {
+        ControlFlow::Continue(())
+    }
+}
+
 impl<'a, X: AstExt, T: Visit<'a, X>, const N: usize> Visit<'a, X> for [T; N] {
     fn visit<V: Visitor<'a, X>>(&self, visitor: &mut V) -> ControlFlow<V::Break> {
         for value in self {
@@ -351,15 +363,11 @@ pub trait Visitor<'a, X: AstExt> {
 /// See also [`visit_relations_mut`], [`visit_expressions_mut`] and
 /// [`visit_statements_mut`].
 ///
-/// # Lifetimes limit what can be stored
+/// # Replacing text
 ///
-/// Every string in the tree borrows from the SQL text for the tree's lifetime
-/// `'a`, and the tree is invariant over `'a`. A replacement written into a node
-/// must therefore also live for `'a`: an owned value made inside a hook, such
-/// as the result of `format!` or `to_uppercase`, cannot be stored in the tree.
-///
-/// To rewrite text, borrow it from data that outlives the tree, such as strings
-/// prepared before parsing. (Import only `VisitMut`, not `Visit`, to call
+/// Strings in the tree are `Cow<'a, str>`, so a hook can store text it
+/// allocates, such as the result of `format!` or `to_uppercase`, as well as
+/// text borrowed for `'a`. (Import only `VisitMut`, not `Visit`, to call
 /// `.visit` with a mutable visitor; otherwise call `VisitMut::visit` directly.)
 ///
 /// ```
@@ -373,23 +381,22 @@ pub trait Visitor<'a, X: AstExt> {
 ///     to: &'r str,
 /// }
 ///
-/// impl<'a> VisitorMut<'a, Builtin> for RenameTables<'a> {
+/// impl<'a> VisitorMut<'a, Builtin> for RenameTables<'_> {
 ///     type Break = ();
 ///
 ///     fn post_visit_relation(&mut self, relation: &mut ObjectName<'a>) -> ControlFlow<()> {
 ///         if let [part] = relation.parts.as_mut_slice()
 ///             && part.text == self.from
 ///         {
-///             part.text = self.to;
+///             part.text = self.to.to_owned().into();
 ///         }
 ///         ControlFlow::Continue(())
 ///     }
 /// }
 ///
-/// let new_name = String::from("renamed");
 /// let sql = "SELECT a FROM foo JOIN bar ON foo.x = bar.x";
 /// let mut statements = parse_sql::<Postgres>(sql).unwrap();
-/// let mut rename = RenameTables { from: "foo", to: &new_name };
+/// let mut rename = RenameTables { from: "foo", to: "renamed" };
 /// let _ = statements.visit(&mut rename);
 /// assert_eq!(
 ///     statements[0].to_string(),
@@ -594,19 +601,15 @@ where
 /// Calls `f` with mutable access to every table or view named in `v`, after
 /// visiting each name.
 ///
-/// See the limit on replacement text at [`VisitorMut`]. A replacement must
-/// live as long as the tree does:
-///
 /// ```
 /// # use std::ops::ControlFlow;
 /// use sqlparser::ast::visit_relations_mut;
 /// use sqlparser::dialect::Postgres;
 /// use sqlparser::parse_sql;
 ///
-/// let renamed = String::from("bar");
 /// let mut statements = parse_sql::<Postgres>("SELECT a FROM foo").unwrap();
 /// let _ = visit_relations_mut(&mut statements, |table| {
-///     table.parts[0].text = &renamed;
+///     table.parts[0].text = format!("b{}", "ar").into();
 ///     ControlFlow::<()>::Continue(())
 /// });
 /// assert_eq!(statements[0].to_string(), "SELECT a FROM bar");
@@ -749,7 +752,7 @@ where
 pub(crate) fn drop_names_relations(drop: &DropObject<'_>) -> bool {
     match drop.object_type {
         ObjectType::Table | ObjectType::View | ObjectType::MaterializedView => true,
-        ObjectType::Named(kind) => kind.contains("TABLE") || kind.contains("VIEW"),
+        ObjectType::Named(ref kind) => kind.contains("TABLE") || kind.contains("VIEW"),
         ObjectType::Index | ObjectType::Schema | ObjectType::Database | ObjectType::Sequence => {
             false
         }

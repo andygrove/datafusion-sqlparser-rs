@@ -330,13 +330,13 @@ mod shape {
             } => {
                 assert_eq!(aggregates.len(), 2);
                 assert_eq!(text(&aggregates[0].expr.expr), "SUM(c)");
-                assert_eq!(aggregates[0].expr.alias.unwrap().text, "s");
+                assert_eq!(aggregates[0].expr.alias.as_ref().unwrap().text, "s");
                 assert_eq!(aggregates[0].asc, Some(true));
                 assert_eq!(aggregates[1].expr.alias, None);
                 assert_eq!(aggregates[1].asc, None);
                 assert_eq!(group_by.len(), 1);
                 assert_eq!(text(&group_by[0].expr.expr), "a");
-                assert_eq!(group_by[0].expr.alias.unwrap().text, "x");
+                assert_eq!(group_by[0].expr.alias.as_ref().unwrap().text, "x");
                 assert_eq!(group_by[0].asc, Some(false));
             }
             other => panic!("{other:?}"),

@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-//! `Deserialize` for the AST: nodes borrow from the serialized text, strings
-//! that cannot be borrowed go in a `StringArena`, and every corpus statement
-//! survives the round trip.
+//! `Deserialize` for the AST: nodes own their strings, so any input can be
+//! read and the tree outlives it, and every corpus statement survives the
+//! round trip.
 
 #![cfg(feature = "serde")]
 
@@ -29,7 +29,7 @@ use std::fmt;
 
 use corpus::{Kind, V2_DIALECTS, parse_corpus};
 use serde::{Deserialize, Serialize};
-use sqlparser::ast::{Ident, Span, Statement, StatementKind, StringArena, deserialize_with_arena};
+use sqlparser::ast::{Ident, Span, Statement, StatementKind};
 use sqlparser::dialect::builtin::parse_sql_as;
 use sqlparser::dialect::{AstExt, Builtin, Dialect, DialectKind, NoExt, Postgres};
 use sqlparser::grammar;
@@ -40,10 +40,10 @@ type Statements<'a> = Vec<Statement<'a, Builtin>>;
 
 /// Reads `json` with no limit on its depth, so that it can hold any tree the
 /// parser accepts.
-fn from_json<'j>(json: &'j str, arena: &'j StringArena) -> serde_json::Result<Statements<'j>> {
+fn from_json<'a>(json: &str) -> serde_json::Result<Statements<'a>> {
     let mut deserializer = serde_json::Deserializer::from_str(json);
     deserializer.disable_recursion_limit();
-    let statements = deserialize_with_arena(arena, &mut deserializer)?;
+    let statements = Statements::deserialize(&mut deserializer)?;
     deserializer.end()?;
     Ok(statements)
 }
@@ -57,41 +57,32 @@ fn a_select_round_trips() {
 }
 
 #[test]
-fn identifiers_borrow_from_the_serialized_text() {
+fn a_deserialized_tree_outlives_its_input() {
     let ident = Ident {
-        text: "abc",
+        text: "abc".into(),
         quote: None,
         span: Span::default(),
     };
-    let json = serde_json::to_string(&ident).unwrap();
-    let back: Ident = serde_json::from_str(&json).unwrap();
+    let back: Ident<'static> = {
+        let json = serde_json::to_string(&ident).unwrap();
+        serde_json::from_str(&json).unwrap()
+    };
     assert_eq!(back, ident);
-    assert!(json.as_bytes().as_ptr_range().contains(&back.text.as_ptr()));
 }
 
 #[test]
-fn borrowing_alone_rejects_a_string_with_an_escape() {
-    let statements = parse_sql::<Postgres>(r#"SELECT 'a"b'"#).unwrap();
-    let json = serde_json::to_string(&statements).unwrap();
-    assert!(serde_json::from_str::<Statements>(&json).is_err());
-}
-
-#[test]
-fn the_arena_holds_strings_with_escapes() {
+fn strings_with_escapes_deserialize() {
     let sql = "SELECT 'a\"b\nc\\d' FROM \"q\"\"t\"";
     let statements = parse_sql::<Postgres>(sql).unwrap();
     let json = serde_json::to_string(&statements).unwrap();
-    let arena = StringArena::new();
-    assert_eq!(from_json(&json, &arena).unwrap(), statements);
+    assert_eq!(from_json(&json).unwrap(), statements);
 }
 
 #[test]
-fn the_arena_reads_from_a_reader() {
+fn a_tree_reads_from_a_reader() {
     let statements = parse_sql::<Postgres>("SELECT a FROM t").unwrap();
     let json = serde_json::to_vec(&statements).unwrap();
-    let arena = StringArena::new();
-    let mut deserializer = serde_json::Deserializer::from_reader(json.as_slice());
-    let back: Statements = deserialize_with_arena(&arena, &mut deserializer).unwrap();
+    let back: Statements = serde_json::from_reader(json.as_slice()).unwrap();
     assert_eq!(back, statements);
 }
 
@@ -169,9 +160,7 @@ fn every_corpus_statement_round_trips() {
                 continue;
             };
             let json = serde_json::to_string(&statements).unwrap();
-            let arena = StringArena::new();
-            let back = from_json(&json, &arena)
-                .unwrap_or_else(|e| panic!("[{dialect}] {}: {e}", case.sql));
+            let back = from_json(&json).unwrap_or_else(|e| panic!("[{dialect}] {}: {e}", case.sql));
             assert_eq!(back, statements, "[{dialect}] {}", case.sql);
             // Unlike `==`, this also compares spans.
             assert_eq!(

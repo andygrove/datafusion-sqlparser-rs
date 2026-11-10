@@ -17,6 +17,7 @@
 
 //! Oracle Database.
 
+use std::borrow::Cow;
 use std::fmt;
 
 use crate::PResult;
@@ -43,33 +44,30 @@ pub struct Oracle;
 /// Expressions only Oracle Database has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum OracleExpr<'a> {
     QuoteDelimited(Box<QuoteDelimitedString<'a>>),
 }
 
 /// `Q'[text]'` or `NQ'[text]'`
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct QuoteDelimitedString<'a> {
     pub national: bool,
     pub start: char,
-    pub value: &'a str,
+    pub value: Cow<'a, str>,
     pub end: char,
 }
 
 /// A comment read as instructions to the optimizer: `/*+ text */` or
 /// `--+ text`, with any letters and digits before the `+` in `prefix`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct OptimizerHint<'a> {
-    pub prefix: &'a str,
-    pub text: &'a str,
+    pub prefix: Cow<'a, str>,
+    pub text: Cow<'a, str>,
     pub style: HintStyle,
 }
 
@@ -84,7 +82,6 @@ pub enum HintStyle {
 /// Statements only Oracle Database has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -116,7 +113,7 @@ pub enum OracleStatement<'a> {
     },
     /// `SET name [, name ...] value`, with no `=` or `TO`.
     SetParameters {
-        names: Vec<&'a str>,
+        names: Vec<Cow<'a, str>>,
         value: Expr<'a, Builtin>,
     },
 }
@@ -124,7 +121,6 @@ pub enum OracleStatement<'a> {
 /// `INSERT` with syntax the core node cannot hold.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -141,7 +137,6 @@ pub struct OracleInsert<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -155,7 +150,6 @@ pub enum InsertTarget<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct InsertAlias<'a> {
     pub name: Ident<'a>,
@@ -283,7 +277,7 @@ fn quote_delimited_string(text: &str) -> QuoteDelimitedString<'_> {
     QuoteDelimitedString {
         national,
         start,
-        value,
+        value: value.into(),
         end,
     }
 }
@@ -316,8 +310,8 @@ fn parse_hints(mut gap: &str) -> Vec<OptimizerHint<'_>> {
         };
         if let Some((prefix, text)) = hint_parts(comment) {
             hints.push(OptimizerHint {
-                prefix,
-                text,
+                prefix: prefix.into(),
+                text: text.into(),
                 style,
             });
         }
@@ -502,7 +496,7 @@ fn parse_set_parameters<'a, D: Dialect<Ext = Builtin>>(
         p.advance();
         Expr::new(
             ExprKind::Ident(Ident {
-                text: token.text,
+                text: token.text.into(),
                 quote: None,
                 span: token.span,
             }),
@@ -511,7 +505,10 @@ fn parse_set_parameters<'a, D: Dialect<Ext = Builtin>>(
     } else {
         p.parse_expr()?
     };
-    Ok(OracleStatement::SetParameters { names, value })
+    Ok(OracleStatement::SetParameters {
+        names: names.into_iter().map(Cow::Borrowed).collect(),
+        value,
+    })
 }
 
 fn oracle<'a>(statement: OracleStatement<'a>) -> Statement<'a, Builtin> {
@@ -639,6 +636,11 @@ pub fn parse_select_modifiers<'a, D: Dialect<Ext = Builtin>>(
 }
 
 impl Dialect for Oracle {
+    /// Recursive CTEs need no keyword here, and `RECURSIVE` is rejected.
+    fn eat_with_recursive<'a>(_p: &mut Parser<'a, Self>) -> bool {
+        false
+    }
+
     type Ext = Builtin;
 
     fn parse_create_extension<'a>(
@@ -653,7 +655,7 @@ impl Dialect for Oracle {
     ) -> PResult<Option<ColumnOption<'a, Builtin>>> {
         if p.eat_keyword("INVISIBLE") {
             return Ok(Some(ColumnOption::Keyword {
-                keyword: "INVISIBLE",
+                keyword: "INVISIBLE".into(),
                 expr: None,
             }));
         }

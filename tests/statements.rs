@@ -310,7 +310,7 @@ fn data_type_keeps_its_arguments() {
             qualifier: Vec::new(),
             angle: None,
             name: ident("decimal"),
-            args: vec!["10", "2"],
+            args: vec!["10".into(), "2".into()],
             suffix: DataTypeSuffix::None,
             array: ArrayType::None,
         }

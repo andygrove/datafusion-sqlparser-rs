@@ -88,7 +88,7 @@ fn union<'a>(left: S<'a>, right: S<'a>) -> S<'a> {
 /// The query for `SELECT <number>`.
 fn q(number: &str) -> Q<'_> {
     Query {
-        with: vec![],
+        with: None,
         body: sel(number),
         order_by: vec![],
         distribution: None,
@@ -197,7 +197,7 @@ fn parentheses_group_set_operations() {
         query("(SELECT 1 UNION SELECT 2) INTERSECT SELECT 3").body,
         set(
             SetExpr::Query(Box::new(Query {
-                with: vec![],
+                with: None,
                 body: union(sel("1"), sel("2")),
                 order_by: vec![],
                 distribution: None,
@@ -243,7 +243,7 @@ fn parenthesized_branch_keeps_its_own_limit() {
 #[test]
 fn with_applies_to_the_whole_set_operation() {
     let parsed = query("WITH c AS (SELECT 1) SELECT 2 UNION SELECT 3");
-    assert_eq!(parsed.with.len(), 1);
+    assert_eq!(parsed.ctes().len(), 1);
     assert_eq!(parsed.body, union(sel("2"), sel("3")));
 }
 
@@ -298,7 +298,7 @@ fn scalar_subquery_may_start_with_with() {
     let ExprKind::Subquery(inner) = expr("(WITH c AS (SELECT 1) SELECT 2)").kind else {
         panic!("expected a subquery");
     };
-    assert_eq!(inner.with[0].name, ident("c"));
+    assert_eq!(inner.ctes()[0].name, ident("c"));
 }
 
 #[test]
@@ -672,4 +672,55 @@ fn reserved_word_is_still_rejected_before_a_dot() {
 #[test]
 fn number_is_rejected_after_a_dot() {
     assert!(parse_expr::<Core>("t.1").is_err());
+}
+
+#[test]
+fn with_recursive_marks_the_query() {
+    let sql = "WITH RECURSIVE t (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM t WHERE n < 3) SELECT n FROM t";
+    let parsed = query(sql);
+    assert!(parsed.with.as_ref().is_some_and(|with| with.recursive));
+    assert_eq!(parsed.ctes()[0].name.text, "t");
+    assert_eq!(parsed.to_string(), sql);
+    assert!(
+        !query("WITH t AS (SELECT 1) SELECT 2")
+            .with
+            .as_ref()
+            .is_some_and(|with| with.recursive)
+    );
+}
+
+#[test]
+fn recursive_can_name_a_cte() {
+    for sql in [
+        "WITH recursive AS (SELECT 1) SELECT * FROM recursive",
+        "WITH recursive (a) AS (SELECT 1) SELECT * FROM recursive",
+    ] {
+        let parsed = query(sql);
+        assert!(
+            !parsed.with.as_ref().is_some_and(|with| with.recursive),
+            "{sql}"
+        );
+        assert_eq!(parsed.ctes()[0].name.text, "recursive", "{sql}");
+    }
+    assert!(
+        query("WITH RECURSIVE recursive AS (SELECT 1) SELECT 2")
+            .with
+            .as_ref()
+            .is_some_and(|with| with.recursive)
+    );
+}
+
+#[test]
+fn with_recursive_is_rejected_where_the_keyword_does_not_exist() {
+    use sqlparser::dialect::{MsSql, Oracle};
+    let sql = "WITH RECURSIVE t AS (SELECT 1) SELECT 2";
+    assert!(parse_query::<MsSql>(sql).is_err());
+    assert!(parse_query::<Oracle>(sql).is_err());
+    assert!(
+        parse_query::<Postgres>(sql)
+            .unwrap()
+            .with
+            .as_ref()
+            .is_some_and(|with| with.recursive)
+    );
 }

@@ -199,15 +199,15 @@ fn parse_pattern_repetition<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Ma
 /// Parses `n}`, `n,}`, `,m}` or `n,m}`, with the `{` consumed.
 fn parse_pattern_bounds<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<PatternQuantifier<'a>> {
     let quantifier = if p.eat_op(",") {
-        PatternQuantifier::AtMost(parse_number_text(p)?)
+        PatternQuantifier::AtMost(parse_number_text(p)?.into())
     } else {
         let low = parse_number_text(p)?;
         if !p.eat_op(",") {
-            PatternQuantifier::Exactly(low)
+            PatternQuantifier::Exactly(low.into())
         } else if p.at_op("}") {
-            PatternQuantifier::AtLeast(low)
+            PatternQuantifier::AtLeast(low.into())
         } else {
-            PatternQuantifier::Range(low, parse_number_text(p)?)
+            PatternQuantifier::Range(low.into(), parse_number_text(p)?.into())
         }
     };
     p.expect_op("}")?;

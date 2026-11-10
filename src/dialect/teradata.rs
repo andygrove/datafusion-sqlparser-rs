@@ -17,6 +17,7 @@
 
 //! Teradata.
 
+use std::borrow::Cow;
 use std::fmt;
 
 use crate::PResult;
@@ -40,7 +41,6 @@ pub struct Teradata;
 /// Statements only Teradata has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -54,7 +54,6 @@ pub enum TeradataStatement<'a> {
 /// Expressions only Teradata has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum TeradataExpr<'a> {
     /// `'a' 'b'`, which is the single string `'ab'`.
@@ -98,7 +97,6 @@ pub struct TeradataWithData {
 /// `CREATE TABLE` with clauses only Teradata has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -120,7 +118,6 @@ pub struct TeradataCreateTable<'a> {
 /// One `expr [AS alias]` of `EXECUTE ... USING`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -134,7 +131,6 @@ pub struct TeradataUsing<'a> {
 /// `EXECUTE [IMMEDIATE] ...`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -151,21 +147,19 @@ pub struct TeradataExecute<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
     visit(ext = "crate::dialect::Builtin")
 )]
 pub enum TeradataTopQuantity<'a> {
-    Number(&'a str),
+    Number(Cow<'a, str>),
     Expr(Expr<'a, Builtin>),
 }
 
 /// `TOP` beyond a plain number: `TOP (expr)`, `PERCENT` and `WITH TIES`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -503,7 +497,7 @@ pub fn parse_select_modifiers<'a, D: Dialect<Ext = Builtin>>(
             return Err(p.expected("an integer after TOP"));
         }
         p.advance();
-        TeradataTopQuantity::Number(token.text)
+        TeradataTopQuantity::Number(token.text.into())
     };
     let percent = p.eat_keyword("PERCENT");
     let with_ties = p.at_keyword("WITH") && p.peek_nth(1).is_word("TIES");
@@ -656,7 +650,7 @@ impl fmt::Display for TeradataExpr<'_> {
             Self::AdjacentStrings(parts) => {
                 f.write_str("'")?;
                 for part in parts {
-                    f.write_str(part.text)?;
+                    f.write_str(&part.text)?;
                 }
                 f.write_str("'")
             }

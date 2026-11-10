@@ -106,7 +106,7 @@ fn backslashes_escape_in_strings() {
 
 #[test]
 fn colons_still_mark_parameters() {
-    assert_eq!(expr(":name"), ExprKind::Placeholder(":name").into());
+    assert_eq!(expr(":name"), ExprKind::Placeholder(":name".into()).into());
 }
 
 // Operators
@@ -669,7 +669,7 @@ mod shape {
     }
 
     fn join_kind(sql: &'static str) -> JoinKind<'static> {
-        select(sql).from[0].joins[0].kind
+        select(sql).from[0].joins[0].kind.clone()
     }
 
     fn spark_insert(sql: &'static str) -> SparkInsert<'static> {

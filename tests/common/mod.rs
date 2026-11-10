@@ -26,7 +26,7 @@ use sqlparser::dialect::AstExt;
 
 pub fn ident(text: &str) -> Ident<'_> {
     Ident {
-        text,
+        text: text.into(),
         quote: None,
         span: Span::default(),
     }
@@ -34,7 +34,7 @@ pub fn ident(text: &str) -> Ident<'_> {
 
 pub fn quoted(text: &str, quote: char) -> Ident<'_> {
     Ident {
-        text,
+        text: text.into(),
         quote: Some(quote),
         span: Span::default(),
     }
@@ -45,7 +45,7 @@ pub fn col<X: AstExt>(name: &str) -> Expr<'_, X> {
 }
 
 pub fn num<X: AstExt>(text: &str) -> Expr<'_, X> {
-    ExprKind::Literal(Literal::Number(text)).into()
+    ExprKind::Literal(Literal::Number(text.into())).into()
 }
 
 pub fn bin<'a, X: AstExt>(left: Expr<'a, X>, op: BinaryOp<'a>, right: Expr<'a, X>) -> Expr<'a, X> {

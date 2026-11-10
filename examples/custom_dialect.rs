@@ -77,7 +77,7 @@ impl Dialect for Acme {
     /// Makes `??` a binary operator that binds like `+`.
     fn infix_rule<'a>(p: &Parser<'a, Self>) -> Option<InfixRule<'a, Self>> {
         if p.at_op("??") {
-            return Some(InfixRule::binary(prec::ADD, BinaryOp::Named("??")));
+            return Some(InfixRule::binary(prec::ADD, BinaryOp::Named("??".into())));
         }
         grammar::infix_rule(p)
     }

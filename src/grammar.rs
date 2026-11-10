@@ -28,6 +28,7 @@ use crate::ast::*;
 use crate::dialect::Dialect;
 use crate::lexer::{Token, TokenKind};
 use crate::parser::{InfixParseFn, InfixRule, MAX_NESTING_DEPTH, Parser, SetOperatorRule};
+use std::borrow::Cow;
 
 mod admin;
 mod ddl;
@@ -148,7 +149,7 @@ pub fn is_reserved_for_alias(word: &str) -> bool {
 #[inline]
 pub fn string_literal(token: Token<'_>) -> StringLiteral<'_> {
     StringLiteral {
-        text: &token.text[1..token.text.len() - 1],
+        text: Cow::Borrowed(&token.text[1..token.text.len() - 1]),
         quote: char::from(token.text.as_bytes()[0]),
         backslash_escapes: false,
         national: false,
@@ -163,7 +164,7 @@ pub fn national_string_literal(token: Token<'_>) -> StringLiteral<'_> {
         StringLiteral {
             prefix: Default::default(),
             triple: false,
-            text: &token.text[2..token.text.len() - 1],
+            text: Cow::Borrowed(&token.text[2..token.text.len() - 1]),
             quote: '\'',
             backslash_escapes: false,
             national: true,
@@ -251,7 +252,7 @@ pub fn parse_name_part<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Ident<'
         TokenKind::Word => {
             p.advance();
             Ok(Ident {
-                text: token.text,
+                text: token.text.into(),
                 quote: None,
                 span: token.span,
             })

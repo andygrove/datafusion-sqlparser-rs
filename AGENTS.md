@@ -84,9 +84,12 @@ These are the point of the project. Do not trade them away for convenience.
    overridable rule directly would silently bypass overrides.
 3. **Prefer small rules.** A dialect should override only the part that
    differs. `parse_limit` and `parse_limit_offset` are separate for this reason.
-4. **No string copies during parsing.** Tokens and AST nodes hold `&'a str`.
-   Escapes are resolved on demand by `value()`, which returns a `Cow` and
-   allocates only when an escape is present. Allocating error messages is fine.
+4. **No string copies during parsing.** Tokens hold `&'a str` and AST nodes
+   hold `Cow<'a, str>`, which the parser always fills with `Cow::Borrowed`.
+   Owned text is for code that builds or rewrites trees, such as SQL
+   generators, mutable visitors and `Deserialize`. Escapes are resolved on
+   demand by `value()`, which allocates only when an escape is present or the
+   text is owned. Allocating error messages is fine.
 5. **New keywords and operators need no central registry.** They are matched
    by source text.
 6. **Third-party dialects must be first-class.** Anything a built-in dialect
@@ -119,8 +122,6 @@ build has no dependencies.
   index, schema, function or role does not.
 - Dialects reach the visitors through the `VisitBound` supertrait on each
   `AstExt` slot, which is only a real bound with the feature on.
-- A mutable visitor can only store text that lives for the tree's `'a`, unlike
-  the original, whose `String` fields take an owned replacement. See `VisitorMut`.
 
 These are deliberate differences from the original's visitor:
 
@@ -174,11 +175,8 @@ every field a `#[serde(borrow)]`. `DeserializeExt` stands in for a bound per
 slot. `SerdeBound` on each `AstExt` slot is a real bound only with the feature
 on, and covers `Serialize` only, so a third-party dialect can skip `Deserialize`.
 
-AST strings must be `&'a str`, never `&'static str`, so that they can be
-deserialized. Strings the input cannot lend go through `StringArena`, a wrapper
-around the deserializer in `src/ast/serde_arena.rs`. The arena is borrowed for
-`'de` so that the borrow checker keeps it alive as long as the tree; a
-thread-local would not give that guarantee.
+AST strings are `Cow<'a, str>`, which deserializes as owned text, so a
+deserialized tree does not borrow from its input and can be `'static`.
 
 Serializing or deserializing the deepest trees the parser accepts does not fit a
 small stack in a debug build: a level of the tree is many frames of serde code. Recursive types
@@ -326,7 +324,7 @@ claim is from memory and was not checked against a live server.
 - ClickHouse: `OPTIMIZE` requires `TABLE`. `FORMAT`, `SETTINGS`, `PREWHERE`,
   `SAMPLE` and `GLOBAL` cannot be unquoted aliases. `SETTINGS` and `FORMAT` come
   after `FETCH`. `.5` and `1e3` render as written.
-- DuckDB: `a ISNULL` is the operator, `&&` is accepted, and backtick names,
+- DuckDB: `a ISNULL` is the operator, `&&` and `E'...'` strings are accepted, and backtick names,
   `PERSISTENT` tables and `0b101` are rejected. Still missing, though v1 accepts
   them: trailing commas in columns and `VALUES`, `EXCLUDE (t.a)`, typed lambda
   parameters, and `ASOF JOIN`.

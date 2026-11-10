@@ -27,11 +27,7 @@ use crate::dialect::AstExt;
 
 pub mod comments;
 #[cfg(feature = "serde")]
-mod serde_arena;
-#[cfg(feature = "serde")]
 mod serde_stack;
-#[cfg(feature = "serde")]
-pub use serde_arena::{StringArena, deserialize_with_arena};
 #[cfg(feature = "visitor")]
 pub mod visitor;
 #[cfg(feature = "visitor")]
@@ -96,16 +92,15 @@ pub trait Spanned {
 
 /// An identifier. `text` is the source text between any quotes, with escapes
 /// left in place; use [`Ident::value`] to resolve them.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
     visit(with = "visit_ident")
 )]
 pub struct Ident<'a> {
-    pub text: &'a str,
+    pub text: Cow<'a, str>,
     pub quote: Option<char>,
     pub span: Span,
 }
@@ -116,7 +111,7 @@ impl<'a> DataType<'a> {
         Self {
             qualifier: Vec::new(),
             name: Ident {
-                text: "",
+                text: "".into(),
                 quote: None,
                 span,
             },
@@ -135,10 +130,19 @@ impl<'a> DataType<'a> {
 impl<'a> Ident<'a> {
     /// The identifier's value. Only allocates if it contains an escaped quote.
     pub fn value(&self) -> Cow<'a, str> {
-        match self.quote {
-            Some(quote) => unescape(self.text, quote),
-            None => Cow::Borrowed(self.text),
-        }
+        lend(&self.text, |text| match self.quote {
+            Some(quote) => unescape(text, quote),
+            None => Cow::Borrowed(text),
+        })
+    }
+}
+
+/// Applies `f` to `text`, keeping the result borrowed for `'a` when `text`
+/// borrows from the source. Owned text gives an owned result.
+fn lend<'a>(text: &Cow<'a, str>, f: impl for<'b> FnOnce(&'b str) -> Cow<'b, str>) -> Cow<'a, str> {
+    match text {
+        Cow::Borrowed(text) => f(text),
+        Cow::Owned(text) => Cow::Owned(f(text).into_owned()),
     }
 }
 
@@ -151,12 +155,11 @@ impl PartialEq for Ident<'_> {
 
 /// A string literal. `text` is the source text between the quotes, with
 /// escapes left in place; use [`StringLiteral::value`] to resolve them.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct StringLiteral<'a> {
-    pub text: &'a str,
+    pub text: Cow<'a, str>,
     /// The quote character, or `$` for text between `$$` markers.
     pub quote: char,
     /// True if a backslash introduces an escape sequence in this dialect.
@@ -190,21 +193,19 @@ pub enum StringPrefix {
 impl<'a> StringLiteral<'a> {
     /// The string's value. Only allocates if it contains an escape.
     pub fn value(&self) -> Cow<'a, str> {
-        if self.prefix == StringPrefix::Raw {
-            return Cow::Borrowed(self.text);
-        }
-        if self.triple && !self.backslash_escapes {
-            return Cow::Borrowed(self.text);
-        }
-        if self.backslash_escapes && self.text.contains('\\') {
-            // Inside triple quotes, a doubled quote is just two quotes.
-            let quote = if self.triple { '\0' } else { self.quote };
-            Cow::Owned(unescape_backslashes(self.text, quote))
-        } else if self.triple {
-            Cow::Borrowed(self.text)
-        } else {
-            unescape(self.text, self.quote)
-        }
+        lend(&self.text, |text| {
+            if self.prefix == StringPrefix::Raw || (self.triple && !self.backslash_escapes) {
+                Cow::Borrowed(text)
+            } else if self.backslash_escapes && text.contains('\\') {
+                // Inside triple quotes, a doubled quote is just two quotes.
+                let quote = if self.triple { '\0' } else { self.quote };
+                Cow::Owned(unescape_backslashes(text, quote))
+            } else if self.triple {
+                Cow::Borrowed(text)
+            } else {
+                unescape(text, self.quote)
+            }
+        })
     }
 }
 
@@ -249,23 +250,22 @@ fn unescape(text: &str, quote: char) -> Cow<'_, str> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
     visit(with = "visit_value")
 )]
 pub enum Literal<'a> {
-    Number(&'a str),
+    Number(Cow<'a, str>),
     String(StringLiteral<'a>),
     /// The digits of `X'AB'` or `0xAB`.
-    HexString(&'a str),
+    HexString(Cow<'a, str>),
     /// `$tag$text$tag$`, where `tag` may be empty.
     DollarQuoted {
-        tag: &'a str,
-        text: &'a str,
+        tag: Cow<'a, str>,
+        text: Cow<'a, str>,
     },
     Null,
     Boolean(bool),
@@ -284,9 +284,8 @@ pub enum UnaryOp {
     BitNot,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum BinaryOp<'a> {
     Or,
@@ -315,7 +314,7 @@ pub enum BinaryOp<'a> {
     /// `>>`
     ShiftRight,
     /// An operator a dialect adds, rendered as this text.
-    Named(&'a str),
+    Named(Cow<'a, str>),
 }
 
 /// The keyword of a quantified comparison.
@@ -349,7 +348,7 @@ pub enum CastStyle {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -373,7 +372,7 @@ pub enum ExprKind<'a, X: AstExt> {
         style: CastStyle,
     },
     /// A bind parameter, as written: `?`, `$1` or `:name`.
-    Placeholder(&'a str),
+    Placeholder(Cow<'a, str>),
     /// `INTERVAL value unit`
     Interval(Box<Interval<'a, X>>),
     /// A literal introduced by its type: `DATE '2020-01-01'`.
@@ -441,7 +440,7 @@ pub enum ExprKind<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(
@@ -501,7 +500,6 @@ impl<X: AstExt> Spanned for Expr<'_, X> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct TypedString<'a> {
     pub ty: DataType<'a>,
@@ -516,16 +514,16 @@ pub struct TypedString<'a> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct Interval<'a, X: AstExt> {
     pub value: Expr<'a, X>,
-    pub leading_field: Option<&'a str>,
-    pub leading_precision: Option<&'a str>,
-    pub last_field: Option<&'a str>,
-    pub fractional_seconds_precision: Option<&'a str>,
+    pub leading_field: Option<Cow<'a, str>>,
+    pub leading_precision: Option<Cow<'a, str>>,
+    pub last_field: Option<Cow<'a, str>>,
+    pub fractional_seconds_precision: Option<Cow<'a, str>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -545,7 +543,7 @@ pub enum TrimSide {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -567,7 +565,10 @@ pub enum SpecialExpr<'a, X: AstExt> {
         items: Vec<Expr<'a, X>>,
     },
     /// `{d '2020-01-01'}` or `{fn f()}`: an ODBC escape sequence.
-    OdbcEscape { kind: &'a str, expr: Expr<'a, X> },
+    OdbcEscape {
+        kind: Cow<'a, str>,
+        expr: Expr<'a, X>,
+    },
     /// `expr[lower:upper]` or `expr[lower:upper:step]`, any bound optional.
     Slice {
         expr: Expr<'a, X>,
@@ -607,12 +608,15 @@ pub enum SpecialExpr<'a, X: AstExt> {
     /// `expr (+)`, marking the outer side of a join.
     OuterJoinMark(Expr<'a, X>),
     /// `EXTRACT(field FROM expr)`
-    Extract { field: &'a str, expr: Expr<'a, X> },
+    Extract {
+        field: Cow<'a, str>,
+        expr: Expr<'a, X>,
+    },
     /// `CEIL(expr TO field)` or `FLOOR(expr TO field)`
     Round {
         ceil: bool,
         expr: Expr<'a, X>,
-        field: &'a str,
+        field: Cow<'a, str>,
     },
     /// `POSITION(needle IN haystack)`
     Position {
@@ -664,7 +668,7 @@ pub enum GroupingKind {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -696,7 +700,7 @@ pub enum SelectItemKind<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -757,7 +761,7 @@ impl<X: AstExt> Spanned for SelectItem<'_, X> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -779,7 +783,6 @@ pub struct WildcardOptions<'a, X: AstExt> {
 /// A possibly qualified name such as `schema.table`. Always has a part.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct ObjectName<'a> {
     pub parts: Vec<Ident<'a>>,
@@ -791,7 +794,7 @@ pub struct ObjectName<'a> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -809,7 +812,7 @@ pub enum FunctionArg<'a, X: AstExt> {
     /// A named argument written with another operator, such as `name := value`.
     NamedWith {
         name: Ident<'a>,
-        operator: &'a str,
+        operator: Cow<'a, str>,
         value: Expr<'a, X>,
     },
 }
@@ -820,7 +823,7 @@ pub enum FunctionArg<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(
@@ -872,7 +875,7 @@ pub enum TableFactor<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -890,7 +893,7 @@ pub struct XmlTable<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -905,7 +908,7 @@ pub struct XmlNamespace<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -921,7 +924,7 @@ pub struct XmlPassingArgument<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -937,7 +940,7 @@ pub struct XmlTableColumn<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -958,7 +961,7 @@ pub enum XmlColumnKind<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -966,7 +969,7 @@ pub struct TimeTravel<'a, X: AstExt> {
     #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
     pub name: ObjectName<'a>,
     /// `TIMESTAMP` or `VERSION`.
-    pub kind: &'a str,
+    pub kind: Cow<'a, str>,
     pub at: Expr<'a, X>,
 }
 
@@ -977,7 +980,7 @@ pub struct TimeTravel<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1011,9 +1014,8 @@ pub enum EmptyMatches {
     WithUnmatchedRows,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum AfterMatchSkip<'a> {
     PastLastRow,
@@ -1025,7 +1027,6 @@ pub enum AfterMatchSkip<'a> {
 /// A regular expression over row symbols.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 #[cfg_attr(feature = "serde", serde(remote = "Self"))]
 pub enum MatchPattern<'a> {
@@ -1053,9 +1054,8 @@ pub enum MatchPattern<'a> {
 }
 
 /// Bounds are the source text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum PatternQuantifier<'a> {
     /// `*`
@@ -1065,13 +1065,13 @@ pub enum PatternQuantifier<'a> {
     /// `?`
     AtMostOne,
     /// `{n}`
-    Exactly(&'a str),
+    Exactly(Cow<'a, str>),
     /// `{n,}`
-    AtLeast(&'a str),
+    AtLeast(Cow<'a, str>),
     /// `{,m}`
-    AtMost(&'a str),
+    AtMost(Cow<'a, str>),
     /// `{n,m}`
-    Range(&'a str, &'a str),
+    Range(Cow<'a, str>, Cow<'a, str>),
 }
 
 /// An expression with an optional alias, as in a `PIVOT` value list.
@@ -1081,7 +1081,7 @@ pub enum PatternQuantifier<'a> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1096,7 +1096,7 @@ pub struct ExprWithAlias<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1112,7 +1112,7 @@ pub struct TableSample<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1120,7 +1120,7 @@ pub struct SampleClause<'a, X: AstExt> {
     /// True if written `TABLESAMPLE`, false if `SAMPLE`.
     pub long_form: bool,
     /// `BERNOULLI`, `ROW`, `SYSTEM` or `BLOCK`.
-    pub method: Option<&'a str>,
+    pub method: Option<Cow<'a, str>>,
     pub amount: SampleAmount<'a, X>,
     pub parenthesized: bool,
     pub seed: Option<SampleSeed<'a>>,
@@ -1135,7 +1135,7 @@ pub struct SampleClause<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1146,8 +1146,8 @@ pub enum SampleAmount<'a, X: AstExt> {
     },
     /// `BUCKET 3 OUT OF 16 [ON expr]`
     Bucket {
-        bucket: &'a str,
-        total: &'a str,
+        bucket: Cow<'a, str>,
+        total: Cow<'a, str>,
         on: Option<Box<Expr<'a, X>>>,
     },
 }
@@ -1160,14 +1160,13 @@ pub enum SampleUnit {
     Percent,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct SampleSeed<'a> {
     /// True if written `REPEATABLE`, false if `SEED`.
     pub repeatable: bool,
-    pub value: &'a str,
+    pub value: Cow<'a, str>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1176,7 +1175,7 @@ pub struct SampleSeed<'a> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1192,7 +1191,7 @@ pub struct Pivot<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1210,7 +1209,7 @@ pub struct PivotClause<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1227,7 +1226,7 @@ pub enum PivotSource<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1243,7 +1242,7 @@ pub struct Unpivot<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1258,7 +1257,6 @@ pub struct UnpivotClause<'a, X: AstExt> {
 /// The alias of a table in `FROM`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct TableAlias<'a> {
     pub name: Ident<'a>,
@@ -1276,7 +1274,7 @@ pub struct TableAlias<'a> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1299,14 +1297,13 @@ impl<X: AstExt> Spanned for TableRef<'_, X> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum JoinKind<'a> {
     /// A join that only one dialect has, holding all of its keywords, such as
     /// `"KEEP JOIN"`.
-    Custom(&'a str),
+    Custom(Cow<'a, str>),
     Inner,
     Left,
     Right,
@@ -1334,7 +1331,7 @@ pub enum JoinKind<'a> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1359,7 +1356,7 @@ pub enum JoinConstraint<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1378,13 +1375,30 @@ pub struct Join<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct TableWithJoins<'a, X: AstExt> {
     pub relation: TableRef<'a, X>,
     pub joins: Vec<Join<'a, X>>,
+}
+
+/// A `WITH` clause.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(bound(
+        serialize = "",
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
+    ))
+)]
+#[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
+pub struct With<'a, X: AstExt> {
+    /// True for `WITH RECURSIVE`.
+    pub recursive: bool,
+    pub ctes: Vec<Cte<'a, X>>,
 }
 
 /// A common table expression: `name AS (query)`.
@@ -1394,7 +1408,7 @@ pub struct TableWithJoins<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1413,7 +1427,7 @@ pub struct Cte<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(
@@ -1439,7 +1453,7 @@ pub struct OrderByItem<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1473,7 +1487,7 @@ pub enum OffsetRows {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1502,7 +1516,6 @@ pub enum NonBlock {
 /// `FOR {UPDATE | SHARE} [OF name] [NOWAIT | SKIP LOCKED]`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct LockClause<'a> {
     pub lock_type: LockType,
@@ -1518,7 +1531,7 @@ pub struct LockClause<'a> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(
@@ -1528,7 +1541,8 @@ pub struct LockClause<'a> {
 )]
 #[cfg_attr(feature = "serde", serde(remote = "Self"))]
 pub struct Query<'a, X: AstExt> {
-    pub with: Vec<Cte<'a, X>>,
+    /// Boxed, like other rare syntax, to keep every query small.
+    pub with: Option<Box<With<'a, X>>>,
     pub body: SetExpr<'a, X>,
     #[cfg_attr(feature = "visitor", visit(nonempty = "visit_order_by"))]
     pub order_by: Vec<OrderByItem<'a, X>>,
@@ -1544,6 +1558,13 @@ pub struct Query<'a, X: AstExt> {
     pub pipes: Vec<PipeOperator<'a, X>>,
 }
 
+impl<'a, X: AstExt> Query<'a, X> {
+    /// The common table expressions of the `WITH` clause, if any.
+    pub fn ctes(&self) -> &[Cte<'a, X>] {
+        self.with.as_deref().map_or(&[], |with| &with.ctes)
+    }
+}
+
 /// One `|> ...` step, which takes the table so far as its input.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -1551,7 +1572,7 @@ pub struct Query<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1602,7 +1623,7 @@ pub enum PipeOperator<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1613,9 +1634,8 @@ pub struct PipeAggregate<'a, X: AstExt> {
 }
 
 /// `name AS new_name` in `|> RENAME`.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct PipeRename<'a> {
     pub name: Ident<'a>,
@@ -1648,7 +1668,7 @@ pub enum SetQuantifier {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1693,7 +1713,7 @@ pub enum GroupByModifier {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(
@@ -1740,13 +1760,13 @@ pub struct Select<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct SelectInto<'a, X: AstExt> {
     /// `TEMPORARY`, `TEMP` or `UNLOGGED`, as written.
-    pub modifier: Option<&'a str>,
+    pub modifier: Option<Cow<'a, str>>,
     pub table_keyword: bool,
     /// The table or variables, each a name or placeholder.
     pub targets: Vec<Expr<'a, X>>,
@@ -1759,7 +1779,7 @@ pub struct SelectInto<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1777,7 +1797,7 @@ pub struct LateralView<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1793,7 +1813,7 @@ pub struct QueryDistribution<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1813,7 +1833,7 @@ pub enum ConnectBy<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1829,7 +1849,7 @@ pub struct NamedWindow<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1845,7 +1865,7 @@ pub struct OutputClause<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1902,7 +1922,7 @@ pub enum StatementKind<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(
@@ -1966,7 +1986,7 @@ impl<X: AstExt> Spanned for Statement<'_, X> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -1986,7 +2006,7 @@ pub enum InsertSource<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2009,7 +2029,7 @@ pub struct Insert<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2024,7 +2044,7 @@ pub struct Assignment<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2052,7 +2072,7 @@ pub struct Update<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2079,7 +2099,6 @@ pub struct Delete<'a, X: AstExt> {
 /// The tables a multi-table `DELETE` removes rows from.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct MultiTableDelete<'a> {
     #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
@@ -2090,7 +2109,6 @@ pub struct MultiTableDelete<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 #[cfg_attr(feature = "serde", serde(remote = "Self"))]
 pub struct DataType<'a> {
@@ -2100,7 +2118,7 @@ pub struct DataType<'a> {
     /// The arguments in `ARRAY<INT>` and `Array(Int)`.
     pub angle: Option<Box<AngleArguments<'a>>>,
     /// The numbers in `decimal(10, 2)`.
-    pub args: Vec<&'a str>,
+    pub args: Vec<Cow<'a, str>>,
     pub suffix: DataTypeSuffix,
     pub array: ArrayType<'a>,
 }
@@ -2108,7 +2126,6 @@ pub struct DataType<'a> {
 /// What is between the angle brackets of a complex type.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum AngleArguments<'a> {
     Types(Vec<DataType<'a>>),
@@ -2121,7 +2138,6 @@ pub enum AngleArguments<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct StructField<'a> {
     /// `None` for a field written as just its type.
@@ -2135,9 +2151,8 @@ pub struct StructField<'a> {
     pub options: Vec<StructFieldOption<'a>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct StructFieldOption<'a> {
     pub key: Ident<'a>,
@@ -2147,14 +2162,13 @@ pub struct StructFieldOption<'a> {
 /// How a data type is made into an array. Sizes are the source text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum ArrayType<'a> {
     None,
     /// `INT[]` or `INT[3][4]`, with one entry per dimension.
-    Brackets(Vec<Option<&'a str>>),
+    Brackets(Vec<Option<Cow<'a, str>>>),
     /// `INT ARRAY` or `INT ARRAY[3]`.
-    Keyword(Option<&'a str>),
+    Keyword(Option<Cow<'a, str>>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2163,7 +2177,7 @@ pub enum ArrayType<'a> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2209,7 +2223,7 @@ pub enum ColumnOption<'a, X: AstExt> {
     /// A keyword a dialect adds before an optional expression, such as
     /// `MATERIALIZED expr`.
     Keyword {
-        keyword: &'a str,
+        keyword: Cow<'a, str>,
         expr: Option<Expr<'a, X>>,
     },
     AutoIncrement,
@@ -2229,7 +2243,7 @@ pub enum ColumnOption<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2239,31 +2253,28 @@ pub struct ExprOption<'a, X: AstExt> {
 }
 
 /// Numbers are the source text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct IdentityParams<'a> {
-    pub seed: &'a str,
-    pub increment: &'a str,
+    pub seed: Cow<'a, str>,
+    pub increment: Cow<'a, str>,
     /// True if written `START seed INCREMENT step`, false if `(seed, step)`.
     pub start_form: bool,
 }
 
 /// A number with the sign it was written with, if any.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct SignedNumber<'a> {
     /// `-`, `+`, or empty.
-    pub sign: &'a str,
-    pub digits: &'a str,
+    pub sign: Cow<'a, str>,
+    pub digits: Cow<'a, str>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum SequenceOption<'a> {
     Increment {
@@ -2287,7 +2298,6 @@ pub enum SequenceOption<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct CreateSequence<'a> {
     pub temporary: bool,
@@ -2321,7 +2331,7 @@ pub enum GeneratedStorage {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2341,7 +2351,7 @@ pub enum GeneratedKind<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2367,7 +2377,6 @@ pub enum ConstraintAttribute {
 /// A `name = 'value'` tag on an object.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct Tag<'a> {
     pub name: ObjectName<'a>,
@@ -2380,7 +2389,7 @@ pub struct Tag<'a> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2396,7 +2405,7 @@ pub struct ColumnDef<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2417,7 +2426,7 @@ pub enum TableConstraintKind<'a, X: AstExt> {
     /// A key or index that a dialect adds to a table: `KEY name (a, b)`.
     Key {
         /// All of its keywords, such as `"FULLTEXT INDEX"`.
-        keyword: &'a str,
+        keyword: Cow<'a, str>,
         name: Option<Ident<'a>>,
         /// The method in `USING name`, before the columns.
         using: Option<Ident<'a>>,
@@ -2433,7 +2442,6 @@ pub enum TableConstraintKind<'a, X: AstExt> {
 /// Text after the columns of a [`TableConstraintKind::Key`].
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum KeyOption<'a> {
     /// `USING name`
@@ -2449,7 +2457,7 @@ pub enum KeyOption<'a> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2467,7 +2475,7 @@ pub struct ExcludeConstraint<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2479,10 +2487,9 @@ pub struct ExcludeElement<'a, X: AstExt> {
 /// The operator of an exclusion constraint element.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum ExcludeOperator<'a> {
-    Plain(&'a str),
+    Plain(Cow<'a, str>),
     /// `OPERATOR(schema.op)`
     Qualified(OperatorName<'a>),
 }
@@ -2490,11 +2497,10 @@ pub enum ExcludeOperator<'a> {
 /// `[schema.]operator`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct OperatorName<'a> {
     pub schema: Vec<Ident<'a>>,
-    pub operator: &'a str,
+    pub operator: Cow<'a, str>,
 }
 
 /// `FOR VALUES ...`, or `DEFAULT`, on a partition.
@@ -2504,7 +2510,7 @@ pub struct OperatorName<'a> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2519,8 +2525,8 @@ pub enum PartitionBound<'a, X: AstExt> {
     },
     /// `FOR VALUES WITH (MODULUS m, REMAINDER r)`
     Hash {
-        modulus: &'a str,
-        remainder: &'a str,
+        modulus: Cow<'a, str>,
+        remainder: Cow<'a, str>,
     },
 }
 
@@ -2531,7 +2537,7 @@ pub enum PartitionBound<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2545,10 +2551,9 @@ pub enum RangeBound<'a, X: AstExt> {
 /// with `ADD`, `SET` or `DROP`, and `DROP` takes no value.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct GenericOption<'a> {
-    pub action: Option<&'a str>,
+    pub action: Option<Cow<'a, str>>,
     pub name: Ident<'a>,
     pub value: Option<StringLiteral<'a>>,
 }
@@ -2559,7 +2564,7 @@ pub struct GenericOption<'a> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2579,7 +2584,7 @@ pub struct TableConstraint<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2601,7 +2606,7 @@ pub struct CreateTable<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2652,16 +2657,15 @@ pub enum NormalForm {
     Nfkd,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum LikeKind<'a> {
     Like,
     ILike,
     SimilarTo,
     /// A keyword a dialect adds, such as a regular expression match.
-    Named(&'a str),
+    Named(Cow<'a, str>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2670,7 +2674,7 @@ pub enum LikeKind<'a> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2685,7 +2689,7 @@ pub struct CaseWhen<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2702,7 +2706,7 @@ pub struct CaseExpr<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2731,7 +2735,7 @@ pub struct FunctionOptions<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2757,7 +2761,7 @@ pub enum NullTreatment {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2772,7 +2776,7 @@ pub enum WindowOver<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2799,7 +2803,7 @@ pub enum FrameUnits {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2817,7 +2821,7 @@ pub enum FrameBound<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -2893,21 +2897,19 @@ pub enum ReferentialAction {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct ForeignKeyRef<'a> {
     #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
     pub table: ObjectName<'a>,
     pub columns: Vec<Ident<'a>>,
     /// `FULL`, `PARTIAL` or `SIMPLE`.
-    pub match_kind: Option<&'a str>,
+    pub match_kind: Option<Cow<'a, str>>,
     pub on_delete: Option<ReferentialAction>,
     pub on_update: Option<ReferentialAction>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum ObjectType<'a> {
     Table,
@@ -2918,7 +2920,7 @@ pub enum ObjectType<'a> {
     Database,
     Sequence,
     /// A kind of object a dialect adds, rendered as this text.
-    Named(&'a str),
+    Named(Cow<'a, str>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2931,7 +2933,6 @@ pub enum DropBehavior {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct DropObject<'a> {
     /// True if `TEMPORARY` follows `DROP`.
@@ -2957,7 +2958,6 @@ pub struct DropObject<'a> {
 /// What is granted. Words are the source text; rendering upper-cases them.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum Privileges<'a> {
     /// `ALL [PRIVILEGES]`
@@ -2974,10 +2974,9 @@ pub enum Privileges<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct Privilege<'a> {
-    pub words: Vec<&'a str>,
+    pub words: Vec<Cow<'a, str>>,
     /// The columns in `UPDATE (a, b)`.
     pub columns: Vec<Ident<'a>>,
 }
@@ -2985,17 +2984,15 @@ pub struct Privilege<'a> {
 /// What a grant applies to.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct GrantObjects<'a> {
     /// The words before the names, such as `ALL TABLES IN SCHEMA`.
-    pub kind: Vec<&'a str>,
+    pub kind: Vec<Cow<'a, str>>,
     pub names: Vec<GrantName<'a>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct GrantName<'a> {
     pub name: ObjectName<'a>,
@@ -3005,11 +3002,10 @@ pub struct GrantName<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct Grantee<'a> {
     /// The words before the name, such as `DATABASE ROLE`.
-    pub kind: Vec<&'a str>,
+    pub kind: Vec<Cow<'a, str>>,
     pub name: ObjectName<'a>,
     /// The host in `user@host`, in dialects that have it.
     pub host: Option<Ident<'a>>,
@@ -3025,7 +3021,6 @@ pub enum CurrentGrants {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct Grant<'a> {
     pub privileges: Privileges<'a>,
@@ -3040,7 +3035,6 @@ pub struct Grant<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct Revoke<'a> {
     pub grant_option_for: bool,
@@ -3057,7 +3051,7 @@ pub struct Revoke<'a> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -3087,7 +3081,7 @@ pub enum MergeClauseKind {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -3103,7 +3097,7 @@ pub struct MergeClause<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -3136,13 +3130,13 @@ pub enum MergeAction<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct RoutineArg<'a, X: AstExt> {
     /// `IN`, `OUT`, `INOUT` or `VARIADIC`.
-    pub mode: Option<&'a str>,
+    pub mode: Option<Cow<'a, str>>,
     pub name: Option<Ident<'a>>,
     pub data_type: DataType<'a>,
     /// The default value. The flag is true if written with `=`, false if
@@ -3156,7 +3150,7 @@ pub struct RoutineArg<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -3172,7 +3166,7 @@ pub struct RoutineSignature<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -3191,14 +3185,14 @@ pub struct DropRoutine<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 pub struct Show<'a, X: AstExt> {
     /// Words such as `TERSE` and `FULL`.
-    pub modifiers: Vec<&'a str>,
+    pub modifiers: Vec<Cow<'a, str>>,
     /// What is shown, such as `TABLES` or `MATERIALIZED VIEWS`.
-    pub object: Vec<&'a str>,
+    pub object: Vec<Cow<'a, str>>,
     /// The object in `SHOW CREATE TABLE name`.
     pub name: Option<ObjectName<'a>>,
     /// In the order written.
@@ -3211,7 +3205,7 @@ pub struct Show<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -3228,7 +3222,7 @@ pub enum ShowClause<'a, X: AstExt> {
     /// `{IN | FROM} [scope] [name]`
     Location {
         from: bool,
-        scope: Option<&'a str>,
+        scope: Option<Cow<'a, str>>,
         name: Option<ObjectName<'a>>,
     },
 }
@@ -3266,12 +3260,11 @@ pub enum FinishKind {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum Transaction<'a> {
     Start(Vec<TransactionMode>),
     /// `BEGIN [TRAN | TRANSACTION | WORK]`
-    Begin(Option<&'a str>),
+    Begin(Option<Cow<'a, str>>),
     Finish {
         kind: FinishKind,
         chain: bool,
@@ -3283,25 +3276,23 @@ pub enum Transaction<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct ExplainFormat<'a> {
     /// True if written `FORMAT=name`.
     pub equals: bool,
-    pub name: &'a str,
+    pub name: Cow<'a, str>,
 }
 
 /// An option in `EXPLAIN (name value, ...)`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct ExplainOption<'a> {
     pub name: Ident<'a>,
     /// `-`, `+`, or empty.
-    pub sign: &'a str,
+    pub sign: Cow<'a, str>,
     /// The value's source text.
-    pub value: Option<&'a str>,
+    pub value: Option<Cow<'a, str>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -3310,7 +3301,7 @@ pub struct ExplainOption<'a> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -3330,16 +3321,16 @@ pub enum ExplainTarget<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct Explain<'a, X: AstExt> {
     /// `EXPLAIN`, `DESCRIBE` or `DESC`.
-    pub keyword: &'a str,
+    pub keyword: Cow<'a, str>,
     pub options: Vec<ExplainOption<'a>>,
     /// `EXTENDED` or `FORMATTED`.
-    pub detail: Option<&'a str>,
+    pub detail: Option<Cow<'a, str>>,
     pub analyze: bool,
     pub verbose: bool,
     pub estimate: bool,
@@ -3355,12 +3346,12 @@ pub struct Explain<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct SetAssignment<'a, X: AstExt> {
-    pub scope: Option<&'a str>,
+    pub scope: Option<Cow<'a, str>>,
     pub name: ObjectName<'a>,
     pub value: Expr<'a, X>,
 }
@@ -3371,29 +3362,29 @@ pub struct SetAssignment<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum SetStatement<'a, X: AstExt> {
     Variable {
         /// `LOCAL`, `SESSION` or `GLOBAL`.
-        scope: Option<&'a str>,
+        scope: Option<Cow<'a, str>>,
         name: ObjectName<'a>,
         values: Vec<Expr<'a, X>>,
     },
     /// Several variables set at once.
     Assignments(Vec<SetAssignment<'a, X>>),
     Role {
-        scope: Option<&'a str>,
+        scope: Option<Cow<'a, str>>,
         role: Expr<'a, X>,
     },
     Authorization {
-        scope: Option<&'a str>,
+        scope: Option<Cow<'a, str>>,
         user: Expr<'a, X>,
     },
     TimeZone {
-        scope: Option<&'a str>,
+        scope: Option<Cow<'a, str>>,
         value: Expr<'a, X>,
     },
     Transaction {
@@ -3411,11 +3402,10 @@ pub enum SetStatement<'a, X: AstExt> {
 /// `COMMENT [IF EXISTS] ON kind name IS comment`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct CommentOn<'a> {
     pub if_exists: bool,
-    pub kind: Vec<&'a str>,
+    pub kind: Vec<Cow<'a, str>>,
     pub name: ObjectName<'a>,
     /// `None` for `IS NULL`.
     pub comment: Option<StringLiteral<'a>>,
@@ -3423,7 +3413,6 @@ pub struct CommentOn<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct Truncate<'a> {
     pub table_keyword: bool,
@@ -3438,7 +3427,7 @@ pub struct Truncate<'a> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -3460,9 +3449,8 @@ pub enum AlterColumnAction<'a, X: AstExt> {
 }
 
 /// Where `FIRST` or `AFTER name` puts a column.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum ColumnPosition<'a> {
     First,
@@ -3475,7 +3463,7 @@ pub enum ColumnPosition<'a> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -3506,15 +3494,15 @@ pub enum AlterTableOp<'a, X: AstExt> {
         position: Option<ColumnPosition<'a>>,
     },
     /// A fixed phrase, such as `SET LOGGED`.
-    Phrase(&'a str),
+    Phrase(Cow<'a, str>),
     /// A fixed phrase and a name, such as `ENABLE TRIGGER name`.
     PhraseName {
-        phrase: &'a str,
+        phrase: Cow<'a, str>,
         name: Ident<'a>,
     },
     /// A fixed phrase and a qualified name, such as `INHERIT parent`.
     PhraseObject {
-        phrase: &'a str,
+        phrase: Cow<'a, str>,
         #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
         name: ObjectName<'a>,
     },
@@ -3528,7 +3516,7 @@ pub enum AlterTableOp<'a, X: AstExt> {
     DetachPartition {
         #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
         name: ObjectName<'a>,
-        mode: Option<&'a str>,
+        mode: Option<Cow<'a, str>>,
     },
     /// `OPTIONS (...)`, in `ALTER FOREIGN TABLE`.
     GenericOptions(Vec<GenericOption<'a>>),
@@ -3536,9 +3524,9 @@ pub enum AlterTableOp<'a, X: AstExt> {
     ResetOptions(Vec<ObjectName<'a>>),
     /// `name [=] value`, such as `ALGORITHM = COPY`.
     Setting {
-        name: &'a str,
+        name: Cow<'a, str>,
         equals: bool,
-        value: &'a str,
+        value: Cow<'a, str>,
     },
     /// `RENAME CONSTRAINT old TO new`
     RenameConstraint {
@@ -3608,7 +3596,7 @@ pub enum AlterTableOp<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -3627,7 +3615,7 @@ pub struct AlterTable<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -3649,7 +3637,6 @@ pub struct CreateView<'a, X: AstExt> {
 /// `CREATE [OR REPLACE] ROLE [IF NOT EXISTS] name, ...`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct CreateRole<'a> {
     pub or_replace: bool,
@@ -3660,7 +3647,6 @@ pub struct CreateRole<'a> {
 /// `ANALYZE [TABLE] [names]`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct Analyze<'a> {
     pub table_keyword: bool,
@@ -3675,7 +3661,7 @@ pub struct Analyze<'a> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -3692,7 +3678,7 @@ pub struct AlterView<'a, X: AstExt> {
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -3717,7 +3703,7 @@ pub struct CreateIndex<'a, X: AstExt> {
     pub with: IndexStorage<'a, X>,
     pub predicate: Option<Expr<'a, X>>,
     /// `ALGORITHM = value` and `LOCK = value`, in the order written.
-    pub settings: Vec<(&'a str, &'a str)>,
+    pub settings: Vec<(Cow<'a, str>, Cow<'a, str>)>,
 }
 
 /// Modifiers written before an index's name.
@@ -3738,7 +3724,7 @@ pub type IndexStorage<'a, X> = Vec<(ObjectName<'a>, Option<Expr<'a, X>>)>;
     feature = "serde",
     serde(bound(
         serialize = "",
-        deserialize = "'de: 'a, X: crate::dialect::DeserializeExt<'de, 'a>"
+        deserialize = "X: crate::dialect::DeserializeExt<'de, 'a>"
     ))
 )]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
@@ -3749,7 +3735,6 @@ pub struct IndexColumn<'a, X: AstExt> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct CreateSchema<'a> {
     pub or_replace: bool,
@@ -3763,7 +3748,6 @@ pub struct CreateSchema<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct CreateDatabase<'a> {
     pub if_not_exists: bool,

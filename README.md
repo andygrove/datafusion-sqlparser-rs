@@ -186,36 +186,37 @@ central enum, so a dialect can add new ones without touching the core.
 
 ## Design decisions
 
-### Strings are `&str`, not `Cow`
+### Strings are `Cow<str>`, borrowed while parsing
 
 The original crate stores `String` throughout, partly because it resolves escapes
 while parsing: `'it''s'` becomes `it's`, which is not a slice of the input. This
 crate keeps text exactly as written and resolves escapes only when asked, through
-`Ident::value` and `StringLiteral::value`. Every string in the AST is then a slice
-of the SQL, so parsing never needs to own one.
+`Ident::value` and `StringLiteral::value`. Every string the parser produces is
+then a slice of the SQL, held as `Cow::Borrowed`, so parsing never owns one.
 
-`Cow<str>` would make owned strings possible, but nothing here needs them, and
-every node would pay for the option:
+The strings are `Cow<'a, str>` rather than `&'a str` so that code which builds
+or rewrites trees can store text the input does not contain: a SQL generator
+such as DataFusion's unparser, a mutable visitor that renames tables, or
+`Deserialize`. Such trees can be `'static`.
 
-- `Cow<str>` takes 24 bytes where `&str` takes 16, which would grow `Ident` from 32
-  bytes to 40 and, with it, the nodes that hold names.
-- `&str` is `Copy`, and so are `Ident` and `Literal`. With `Cow` they could not be,
-  and cloning an owned value would allocate.
-- Every read would have to check which variant it holds, and every string would
-  need dropping.
+The costs are real but small:
 
-These are costs of the types themselves. The alternative has not been benchmarked.
+- `Cow<str>` takes 24 bytes where `&str` takes 16, so `Ident` grows from 32 bytes
+  to 40. Measured over the benchmark queries, the bytes allocated rose by 2% to
+  5%. The number of allocations did not change.
+- `Ident` and `Literal` are no longer `Copy`. Cloning a borrowed value is still a
+  copy, and only cloning an owned one allocates.
+- Parse times stayed within a few percent of the `&str` version in both
+  directions, which is within the benchmarks' noise.
 
 The trade-offs are real:
 
-- The SQL text must outlive the AST, so a function that owns the SQL cannot return
-  a tree that borrows from it, and there is no owned AST type yet.
-- Text written into the AST by a mutable visit must outlive the AST too.
-- JSON strings containing escapes cannot be borrowed, so deserializing them needs
-  a `StringArena`.
+- The SQL text must outlive a parsed AST, so a function that owns the SQL cannot
+  return a tree that borrows from it.
 
-If these limits prove a problem, a separate owned form of the tree would address
-them without making every parse pay for it.
+Strings are `Cow<'a, str>`, so the parser borrows every one of them, while code
+that builds or rewrites a tree, such as a mutable visit or `Deserialize`, can
+store owned text.
 
 ### Dialects are strict
 
@@ -397,26 +398,20 @@ let _ = visit_relations(&statements, |relation| {
 assert_eq!(tables, ["foo", "bar"]);
 ```
 
-The AST borrows its strings, so text written into it by a mutable visit must
-outlive the AST, for example by being declared before the SQL is parsed.
+A mutable visit can store borrowed or owned text, such as
+`ident.text = ident.text.to_uppercase().into()`.
 
 ### Serializing
 
 The `serde` feature implements `Serialize` and `Deserialize` for every AST node.
-It also pulls in `stacker`, to handle deeply nested SQL safely, and
-`typed-arena`.
+It also pulls in `stacker`, to handle deeply nested SQL safely.
 
-Deserialized nodes borrow their strings from the serialized text, as parsed
-nodes borrow from the SQL. JSON strings containing an escape such as `\"` or
-`\n` cannot be borrowed, so plain `serde_json::from_str` rejects them.
-`deserialize_with_arena` keeps a copy of just those strings in a `StringArena`:
+Deserialized nodes own their strings, so a tree read back is not tied to the
+serialized text:
 
 ```rust,ignore
 let json = serde_json::to_string(&statements)?;
-
-let arena = StringArena::new();
-let mut deserializer = serde_json::Deserializer::from_str(&json);
-let back: Vec<Statement<'_, Builtin>> = deserialize_with_arena(&arena, &mut deserializer)?;
+let back: Vec<Statement<'static, Builtin>> = serde_json::from_str(&json)?;
 assert_eq!(back, statements);
 ```
 

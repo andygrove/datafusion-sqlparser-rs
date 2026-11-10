@@ -55,14 +55,13 @@ fn exercise<D: Dialect<Ext = Builtin>>(sql: &str) -> bool {
 /// Serializes the tree and reads it back, with no limit on the JSON's depth.
 #[cfg(feature = "serde")]
 fn round_trip(tree: &[sqlparser::ast::Statement<'_, Builtin>]) {
-    use sqlparser::ast::{Statement, StringArena, deserialize_with_arena};
+    use serde::Deserialize;
+    use sqlparser::ast::Statement;
 
     let json = serde_json::to_string(tree).unwrap();
-    let arena = StringArena::new();
     let mut deserializer = serde_json::Deserializer::from_str(&json);
     deserializer.disable_recursion_limit();
-    let back: Vec<Statement<'_, Builtin>> =
-        deserialize_with_arena(&arena, &mut deserializer).unwrap();
+    let back = Vec::<Statement<'_, Builtin>>::deserialize(&mut deserializer).unwrap();
     assert_eq!(serde_json::to_string(&back).unwrap(), json);
 }
 

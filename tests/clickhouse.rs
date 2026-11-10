@@ -696,7 +696,7 @@ mod shape {
         assert_eq!(
             tail.format.as_ref().unwrap(),
             &ClickHouseFormat::Name(Ident {
-                text: "JSON",
+                text: "JSON".into(),
                 quote: None,
                 span: Span::default(),
             })
@@ -737,7 +737,7 @@ mod shape {
         assert!(matches!(
             expr.kind,
             ExprKind::Ext(BuiltinExpr::ClickHouse(ClickHouseExpr::TupleElement {
-                index: "1",
+                index: std::borrow::Cow::Borrowed("1"),
                 ..
             }))
         ));

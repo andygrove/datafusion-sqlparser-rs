@@ -18,6 +18,7 @@
 //! DuckDB, built on the core grammar and PostgreSQL's operators and types.
 
 use crate::ast::Span;
+use std::borrow::Cow;
 use std::fmt;
 
 use crate::PResult;
@@ -43,7 +44,6 @@ pub struct DuckDb;
 /// Expressions only DuckDB has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -64,12 +64,11 @@ pub enum DuckDbExpr<'a> {
     AllColumns,
     /// `:name`, which is written as two tokens because `:` also separates keys
     /// from values.
-    ColonPlaceholder(&'a str),
+    ColonPlaceholder(Cow<'a, str>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -82,7 +81,6 @@ pub struct DuckDbLambda<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -97,7 +95,6 @@ pub struct DuckDbMethodCall<'a> {
 /// Statements only DuckDB has.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -131,7 +128,6 @@ pub enum DuckDbStatement<'a> {
 /// `CREATE FUNCTION` means the same and renders as `CREATE MACRO`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -148,7 +144,6 @@ pub struct DuckDbCreateMacro<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -161,7 +156,6 @@ pub struct MacroArg<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(
     feature = "visitor",
     derive(crate::ast::Visit, crate::ast::VisitMut),
@@ -176,7 +170,6 @@ pub enum MacroDefinition<'a> {
 /// [IN storage] ( TYPE type [, key value ...] )`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct DuckDbCreateSecret<'a> {
     pub or_replace: bool,
@@ -192,7 +185,6 @@ pub struct DuckDbCreateSecret<'a> {
 /// `ATTACH [DATABASE] [IF NOT EXISTS] path [AS alias] [(options)]`
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub struct DuckDbAttach<'a> {
     pub database: bool,
@@ -204,7 +196,6 @@ pub struct DuckDbAttach<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
 #[cfg_attr(feature = "visitor", derive(crate::ast::Visit, crate::ast::VisitMut))]
 pub enum AttachOption<'a> {
     /// `READ_ONLY [true | false]`
@@ -319,12 +310,13 @@ pub fn lex_token(rest: &str) -> Option<LexResult> {
     let bytes = rest.as_bytes();
     match bytes {
         [b'{' | b'}', ..] => op(1),
-        [b':', b':' | b'=', ..] | [b'/', b'/', ..] => op(2),
+        [b':', b':' | b'=', ..] | [b'/', b'/', ..] | [b'=', b'=', ..] => op(2),
         // Never a placeholder token: `:` also separates keys from values.
         [b':', ..] => op(1),
         // A placeholder, unlike PostgreSQL's operator.
         [b'?', ..] => None,
-        _ => lex_number_with_underscores(bytes)
+        _ => postgres::lex_prefixed_string(rest, false)
+            .or_else(|| lex_number_with_underscores(bytes))
             .or_else(|| lex_dollar_word(bytes))
             .or_else(|| postgres::lex_token(rest)),
     }
@@ -339,7 +331,7 @@ fn parse_name_or_string<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<Ident<
     }
     p.advance();
     Ok(Ident {
-        text: &token.text[1..token.text.len() - 1],
+        text: Cow::Borrowed(&token.text[1..token.text.len() - 1]),
         quote: token.text.chars().next(),
         span: token.span,
     })
@@ -468,7 +460,7 @@ pub fn parse_prefix<'a, D: Dialect<Ext = Builtin>>(
     if at_colon_placeholder(p) {
         p.advance();
         let name = p.advance();
-        return Ok(duckdb_expr(DuckDbExpr::ColonPlaceholder(name.text)));
+        return Ok(duckdb_expr(DuckDbExpr::ColonPlaceholder(name.text.into())));
     }
     if p.at_op("(") && p.has_context(COLUMN_OPTION) {
         return p.without_context(COLUMN_OPTION, grammar::parse_prefix);
@@ -529,7 +521,10 @@ fn parse_postfix_not_null<'a, D: Dialect>(
 
 pub fn infix_rule<'a, D: Dialect<Ext = Builtin>>(p: &Parser<'a, D>) -> Option<InfixRule<'a, D>> {
     if p.at_op("//") {
-        return Some(InfixRule::binary(prec::MUL, BinaryOp::Named("//")));
+        return Some(InfixRule::binary(prec::MUL, BinaryOp::Named("//".into())));
+    }
+    if p.at_op("==") {
+        return Some(InfixRule::binary(prec::COMPARE, BinaryOp::Eq));
     }
     if p.at_op("[") {
         return Some(InfixRule::custom(
@@ -596,7 +591,7 @@ pub fn parse_data_type<'a, D: Dialect>(p: &mut Parser<'a, D>) -> PResult<DataTyp
     Ok(DataType {
         qualifier: Vec::new(),
         name: Ident {
-            text: token.text,
+            text: token.text.into(),
             quote: None,
             span: token.span,
         },
@@ -781,7 +776,7 @@ pub fn parse_function_arg<'a, D: Dialect>(
             let value = p.parse_expr()?;
             return Ok(FunctionArg::NamedWith {
                 name,
-                operator,
+                operator: operator.into(),
                 value,
             });
         }
@@ -957,7 +952,7 @@ pub fn parse_create<'a, D: Dialect<Ext = Builtin>>(
 
 /// Parses `CREATE TYPE name AS ENUM (...)`, which is the form DuckDB shares
 /// with PostgreSQL.
-fn parse_create_type<'a, D: Dialect<Ext = Builtin>>(
+pub fn parse_create_type<'a, D: Dialect<Ext = Builtin>>(
     p: &mut Parser<'a, D>,
     flags: CreateFlags,
 ) -> PResult<Option<Statement<'a, Builtin>>> {
@@ -1077,6 +1072,9 @@ pub fn parse_statement<'a, D: Dialect<Ext = Builtin>>(
     if p.at_keyword("RESET") {
         return postgres::utility::parse_reset(p)
             .map(|s| StatementKind::Ext(BuiltinStatement::Postgres(s)).into());
+    }
+    if let Some(prepared) = postgres::utility::parse_prepared_statement(p)? {
+        return Ok(StatementKind::Ext(BuiltinStatement::Postgres(prepared)).into());
     }
     if p.at_keyword("ATTACH") {
         let attach = parse_attach(p)?;
@@ -1254,8 +1252,18 @@ impl Dialect for DuckDb {
         parse_cte(p)
     }
 
+    fn string_literal(token: Token<'_>) -> crate::ast::StringLiteral<'_> {
+        postgres::string_literal(token, false)
+    }
+
     fn parse_set_quantifier<'a>(p: &mut Parser<'a, Self>) -> (SetQuantifier, bool) {
         parse_set_quantifier(p)
+    }
+
+    fn parse_select_modifiers<'a>(
+        p: &mut Parser<'a, Self>,
+    ) -> PResult<crate::dialect::builtin::BuiltinSelect<'a>> {
+        postgres::parse_distinct_on(p)
     }
 
     fn parse_query_order_by<'a>(

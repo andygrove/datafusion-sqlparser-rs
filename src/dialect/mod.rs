@@ -562,6 +562,11 @@ pub trait Dialect: 'static + Sized {
         grammar::parse_select_head(p)
     }
 
+    /// Consumes `RECURSIVE` after `WITH`, in dialects that write it.
+    fn eat_with_recursive<'a>(p: &mut Parser<'a, Self>) -> bool {
+        grammar::eat_with_recursive(p)
+    }
+
     /// Parses a statement that a `WITH` clause leads into, with the cursor after
     /// that clause. The core has only queries there.
     fn parse_statement_after_with<'a>(
