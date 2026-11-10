@@ -129,6 +129,14 @@ macro_rules! spark_family_rules {
         fn supports_create_table_using(&self) -> bool {
             true
         }
+
+        /// `LONG` is an alias for `BIGINT` in Spark SQL.
+        ///
+        /// See <https://spark.apache.org/docs/latest/sql-ref-datatypes.html>
+        /// See <https://docs.databricks.com/aws/en/sql/language-manual/data-types/bigint-type>
+        fn supports_long_type_as_bigint(&self) -> bool {
+            true
+        }
     };
 }
 pub(super) use spark_family_rules;
@@ -142,13 +150,6 @@ pub struct SparkSqlDialect;
 
 impl Dialect for SparkSqlDialect {
     spark_family_rules!();
-
-    /// `LONG` is an alias for `BIGINT` in Spark SQL.
-    ///
-    /// See <https://spark.apache.org/docs/latest/sql-ref-datatypes.html>
-    fn supports_long_type_as_bigint(&self) -> bool {
-        true
-    }
 
     /// Parse the `DIV` keyword as integer division.
     ///

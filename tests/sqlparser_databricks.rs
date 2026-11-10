@@ -804,3 +804,8 @@ fn parse_create_table_using() {
     databricks().verified_stmt("CREATE TABLE IF NOT EXISTS t (i INT) USING delta");
     databricks().verified_stmt("CREATE TABLE t (i INT) USING parquet LOCATION '/data/t'");
 }
+
+#[test]
+fn parse_long_type_as_bigint() {
+    databricks().one_statement_parses_to("CREATE TABLE t (id LONG)", "CREATE TABLE t (id BIGINT)");
+}
